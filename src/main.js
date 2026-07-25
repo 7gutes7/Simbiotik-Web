@@ -11,7 +11,7 @@ document.addEventListener('DOMContentLoaded', () => {
   const webgl = new SimbiotikWebGL();
 
   // Carga del modelo 3D GLTF/GLB en formato Cromo Azul
-  webgl.loadLogoModel('/smbtk1.glb');
+  webgl.loadLogoModel('./smbtk1.glb');
 
   // 1.5 CURSOR PERSONALIZADO (Punto)
   const cursor = document.createElement('div');

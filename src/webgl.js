@@ -214,7 +214,7 @@ export class SimbiotikWebGL {
     this.initTunnel();
     this.initGrass();
     this.initCodeVortex();
-    this.loadSlenderWomanModel('/Slender_Woman_Lores.glb');
+    this.loadSlenderWomanModel('./Slender_Woman_Lores.glb');
     this.setupSlenderInteractions();
     this.bindEvents();
     this.animate();
