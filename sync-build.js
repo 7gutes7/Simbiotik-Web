@@ -9,25 +9,22 @@ const rootDir = __dirname;
 const distDir = path.join(rootDir, 'dist');
 
 function sync() {
-  console.log('Syncing dist output to root for Hostinger static deployment...');
+  console.log('Syncing all compiled dist files to root for Hostinger static deployment...');
 
-  // 1. Copy assets folder to root assets/
-  const distAssets = path.join(distDir, 'assets');
-  const rootAssets = path.join(rootDir, 'assets');
-  if (fs.existsSync(distAssets)) {
-    fs.cpSync(distAssets, rootAssets, { recursive: true });
-    console.log('✓ Copied dist/assets to ./assets');
+  if (!fs.existsSync(distDir)) {
+    console.error('dist directory does not exist!');
+    process.exit(1);
   }
 
-  // 2. Copy dist/index.html to root index.html
-  const distHtml = path.join(distDir, 'index.html');
-  const rootHtml = path.join(rootDir, 'index.html');
-  if (fs.existsSync(distHtml)) {
-    fs.copyFileSync(distHtml, rootHtml);
-    console.log('✓ Copied dist/index.html to ./index.html');
+  const items = fs.readdirSync(distDir);
+  for (const item of items) {
+    const srcPath = path.join(distDir, item);
+    const destPath = path.join(rootDir, item);
+    fs.cpSync(srcPath, destPath, { recursive: true, force: true });
+    console.log(`✓ Copied dist/${item} -> ./${item}`);
   }
 
-  console.log('Sync complete! Ready for Hostinger git deployment.');
+  console.log('Sync complete! All assets and 3D models are ready at root for Hostinger.');
 }
 
 sync();
