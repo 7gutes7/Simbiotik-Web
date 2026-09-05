@@ -264,6 +264,110 @@ document.addEventListener('DOMContentLoaded', () => {
     return { el, sc, originalText };
   });
 
+  // 3.5 PANTALLA DE CARGA
+  // No es decorativa: su trabajo real es precompilar los shaders de todos los
+  // fondos y subir su geometría a la GPU mientras el visitante mira el logo.
+  // Sin esto, cada fondo compilaba al entrar en cuadro y congelaba el hilo
+  // principal en pleno scroll (medido en producción: 1401 ms al entrar la
+  // sección 2, y varios tirones de 380-480 ms en las siguientes).
+  (() => {
+    const overlay = document.getElementById('preloader');
+    if (!overlay) return;
+
+    const barra = document.getElementById('pl-barra');
+    const pct = document.getElementById('pl-pct');
+    const estado = document.getElementById('pl-estado');
+
+    const MIN_MS = 2800;   // permanencia mínima: la entrada no debe sentirse abrupta
+    const MAX_MS = 15000;  // salvavidas: nadie se queda atrapado aquí
+    const t0 = performance.now();
+
+    const mensajes = [
+      [0.00, '[ ESTABLECIENDO ENLACE ]'],
+      [0.22, '[ CARGANDO NÚCLEO 3D ]'],
+      [0.48, '[ COMPILANDO SHADERS ]'],
+      [0.80, '[ SINCRONIZANDO FRECUENCIA ]'],
+      [0.97, '[ SEÑAL ESTABLE ]'],
+    ];
+
+    let progreso = 0;
+    const fijar = (valor) => {
+      // El progreso nunca retrocede: retroceder se lee como un fallo
+      progreso = Math.max(progreso, Math.min(1, valor));
+      const p = Math.round(progreso * 100);
+      if (barra) barra.style.width = p + '%';
+      if (pct) pct.textContent = p + '%';
+      if (estado) {
+        for (let i = mensajes.length - 1; i >= 0; i--) {
+          if (progreso >= mensajes[i][0]) {
+            if (estado.textContent !== mensajes[i][1]) estado.textContent = mensajes[i][1];
+            break;
+          }
+        }
+      }
+    };
+
+    // Scroll bloqueado mientras se compila: si el visitante baja antes de
+    // tiempo, se encuentra justo con los tirones que esto viene a evitar.
+    lenis.stop();
+    window.scrollTo(0, 0);
+
+    const cerrar = () => {
+      if (overlay.dataset.cerrado) return;
+      overlay.dataset.cerrado = '1';
+      fijar(1);
+
+      setTimeout(() => {
+        overlay.classList.add('oculto');
+        document.documentElement.classList.remove('cargando');
+        window.scrollTo(0, 0);
+        lenis.start();
+
+        // El scramble del título se reproduce ahora, ya con el visitante mirando
+        const heroScrambler = scramblers.find((s) => s.el.classList.contains('hero-title'));
+        if (heroScrambler) heroScrambler.sc.setText(heroScrambler.originalText);
+
+        setTimeout(() => overlay.remove(), 1100);
+      }, 260);
+    };
+
+    const salvavidas = setTimeout(cerrar, MAX_MS);
+    const conLimite = (promesa, ms) => Promise.race([promesa, new Promise((r) => setTimeout(r, ms))]);
+
+    (async () => {
+      fijar(0.08);
+
+      // Tipografías primero: evita que el texto salte al retirar la pantalla
+      if (document.fonts && document.fonts.ready) {
+        await conLimite(document.fonts.ready, 4000);
+      }
+      fijar(0.22);
+
+      // Modelos 3D descargados y con sus materiales ya construidos
+      await conLimite(Promise.all([
+        webgl.logoLista || Promise.resolve(),
+        webgl.ensureSlenderWomanModel ? webgl.ensureSlenderWomanModel() : Promise.resolve(),
+      ]), 9000);
+      fijar(0.48);
+
+      // La parte que de verdad elimina los tirones
+      if (webgl.prewarm) {
+        await conLimite(webgl.prewarm((f) => fijar(0.48 + f * 0.46)), 8000);
+      }
+      fijar(0.96);
+
+      const restante = MIN_MS - (performance.now() - t0);
+      if (restante > 0) await new Promise((r) => setTimeout(r, restante));
+
+      clearTimeout(salvavidas);
+      cerrar();
+    })().catch((e) => {
+      console.warn('Secuencia de carga interrumpida:', e);
+      clearTimeout(salvavidas);
+      cerrar();
+    });
+  })();
+
   // 4. GENERAR LA LISTA DE CANCIONES (ACTOS)
   const act1Container = document.getElementById('act-1-tracks');
   const act2Container = document.getElementById('act-2-tracks');

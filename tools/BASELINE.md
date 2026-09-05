@@ -76,3 +76,41 @@ lo ve nunca.
 
 Arreglarlo es un cambio de comportamiento visual, no de rendimiento, así que se
 deja fuera de este trabajo.
+
+
+---
+
+# Segundo diagnóstico: los tirones al cambiar de sección
+
+Medido sobre el sitio ya desplegado, 5 de septiembre de 2026.
+
+| | fps | p50 | p95 | peor frame |
+|---|---|---|---|---|
+| En reposo, sección 1 | 60 | 16.7 ms | 17.6 ms | 17.8 ms |
+| Bajando a la sección 2 | 13.4 | 16.7 ms | **434 ms** | **1401 ms** |
+
+La mediana se mantiene en 16.7 ms: entre tirón y tirón el sitio va perfecto a
+60 fps. El problema no es la tasa de refresco sostenida sino **congelamientos
+puntuales** al entrar cada fondo nuevo en cuadro.
+
+## Causa
+
+Los fondos de sección se crean con `visible = false`: `tunnelGroup`,
+`blackHoleGroup`, `grassSystem`, `codeVortexGroup`, `waterWaves` y el modelo
+Slender. Sus shaders no se compilan ni su geometría sube a la GPU hasta que se
+muestran por primera vez, y esa compilación bloquea el hilo principal. El túnel
+es el fondo de la sección 2 y el más caro: 1401 ms.
+
+## Solución
+
+`SimbiotikWebGL.prewarm()` enciende todos los objetos, hace **una** llamada a
+`compileAsync` sobre la escena completa y luego renderiza por lotes cediendo el
+hilo entre uno y otro, antes de restaurar la visibilidad original. La pantalla
+de carga mantiene el scroll bloqueado mientras tanto, así que el visitante no
+puede llegar a un fondo sin compilar.
+
+Nota sobre la medición del primer diagnóstico: los 20.4 fps sostenidos del
+inicio de esta sesión no se reprodujeron después. El mismo bundle antiguo, horas
+más tarde, daba 60 fps. Aquella cifra dependía del estado de la máquina en ese
+momento y no debe tomarse como la línea base real. Lo que sí se reproduce, y
+coincide con lo que se percibe, son los tirones de esta tabla.

@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="es" class="scroll-smooth">
+<html lang="es" class="scroll-smooth cargando">
 
 <head>
   <meta charset="UTF-8" />
@@ -25,10 +25,111 @@
     href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300..700&family=Inter:wght@300..600&display=swap"
     rel="stylesheet">
   <script type="module" src="/src/main.js"></script>
+  <style>
+    /* ============================================================
+       PANTALLA DE CARGA
+       En línea a propósito: debe pintarse en el primer frame, antes de que
+       llegue el CSS principal y mucho antes de que arranque el bundle.
+       ============================================================ */
+    html.cargando, html.cargando body { overflow: hidden; height: 100%; }
+
+    #preloader {
+      position: fixed;
+      inset: 0;
+      z-index: 99999;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: radial-gradient(circle at 50% 45%, #0a0a1c 0%, #05050f 55%, #000000 100%);
+      font-family: 'Space Grotesk', ui-monospace, 'SF Mono', Menlo, monospace;
+      opacity: 1;
+      transition: opacity 900ms cubic-bezier(0.16, 1, 0.3, 1);
+    }
+
+    #preloader.oculto { opacity: 0; pointer-events: none; }
+
+    .pl-centro {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 26px;
+      padding: 24px;
+      max-width: 420px;
+      width: 100%;
+    }
+
+    .pl-logo {
+      width: 132px;
+      height: 132px;
+      object-fit: contain;
+      opacity: 0.9;
+      animation: pl-latido 2.8s ease-in-out infinite;
+      filter: drop-shadow(0 0 26px rgba(56, 189, 248, 0.32));
+    }
+
+    @keyframes pl-latido {
+      0%, 100% { transform: scale(1); opacity: 0.82; }
+      50%      { transform: scale(1.045); opacity: 1; }
+    }
+
+    .pl-marca {
+      font-size: 15px;
+      letter-spacing: 0.62em;
+      text-indent: 0.62em;
+      color: #e2e8f0;
+      font-weight: 300;
+    }
+
+    .pl-estado {
+      font-size: 10.5px;
+      letter-spacing: 0.24em;
+      color: #38bdf8;
+      min-height: 14px;
+      text-align: center;
+    }
+
+    .pl-barra {
+      width: 100%;
+      height: 1px;
+      background: rgba(226, 232, 240, 0.13);
+      overflow: hidden;
+    }
+
+    .pl-barra-relleno {
+      height: 100%;
+      width: 0%;
+      background: linear-gradient(90deg, rgba(56, 189, 248, 0.5), #38bdf8);
+      box-shadow: 0 0 12px rgba(56, 189, 248, 0.75);
+      transition: width 420ms cubic-bezier(0.16, 1, 0.3, 1);
+    }
+
+    .pl-pct {
+      font-size: 10px;
+      letter-spacing: 0.2em;
+      color: rgba(226, 232, 240, 0.42);
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      .pl-logo { animation: none; }
+      #preloader { transition-duration: 200ms; }
+    }
+  </style>
 </head>
 
 <body
   class="antialiased bg-simbiotik-deep text-text-primary selection:bg-simbiotik-violet/30 selection:text-text-primary">
+
+  <!-- Pantalla de carga: se retira desde main.js cuando los modelos están
+       descargados y todos los shaders precompilados -->
+  <div id="preloader">
+    <div class="pl-centro">
+      <img class="pl-logo" src="/SmbtK%20vectorwhite.svg" alt="" aria-hidden="true" />
+      <div class="pl-marca">SIMBIOTIK</div>
+      <div class="pl-estado" id="pl-estado">[ ESTABLECIENDO ENLACE ]</div>
+      <div class="pl-barra"><div class="pl-barra-relleno" id="pl-barra"></div></div>
+      <div class="pl-pct" id="pl-pct">0%</div>
+    </div>
+  </div>
 
   <!-- Canvas 3D de Fondo Permanente (Three.js WebGL) -->
   <canvas id="webgl-canvas"></canvas>

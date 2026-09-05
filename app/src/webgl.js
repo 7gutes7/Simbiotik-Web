@@ -175,6 +175,11 @@ export class SimbiotikWebGL {
     // a pantalla completa), así que la cantidad de píxeles a rasterizar es la
     // palanca dominante. Arrancamos en máxima calidad y sólo bajamos un escalón
     // si el equipo no sostiene el presupuesto de frame.
+    // Promesas de disponibilidad, para que la pantalla de carga sepa cuándo
+    // están realmente listos los modelos antes de precompilar.
+    this.logoLista = new Promise((resolve) => { this._resolverLogo = resolve; });
+    this.slenderLista = new Promise((resolve) => { this._resolverSlender = resolve; });
+
     this.dprTiers = [2, 1.5, 1.25, 1];
     this.dprTierIndex = 0;
     // En pantallas de alta densidad el propio sobremuestreo ya suaviza los bordes,
@@ -723,17 +728,22 @@ export class SimbiotikWebGL {
 
       this.addReflectiveLights();
       this.sampleLogoVertices();
-      console.log("Logotipo 3D GLTF (Cristal Prismático) cargado exitosamente.");
+      this._resolverLogo?.();
     }, undefined, (error) => {
       console.error("Error cargando el modelo GLTF/GLB:", error);
+      // Se resuelve igualmente: un modelo que falla no debe dejar al visitante
+      // atrapado para siempre en la pantalla de carga.
+      this._resolverLogo?.();
     });
   }
 
   // Carga bajo demanda del modelo Slender, una sola vez
   ensureSlenderWomanModel() {
-    if (this.slenderRequested) return;
-    this.slenderRequested = true;
-    this.loadSlenderWomanModel('./Slender_Woman_Lores.glb');
+    if (!this.slenderRequested) {
+      this.slenderRequested = true;
+      this.loadSlenderWomanModel('./Slender_Woman_Lores.glb');
+    }
+    return this.slenderLista;
   }
 
   // Cargar modelo 3D Slender_Woman_Lores para la sección Manifiesto
@@ -782,9 +792,10 @@ export class SimbiotikWebGL {
           });
         }
       });
-      console.log("Modelo 3D Slender Woman cargado para Manifiesto.");
+      this._resolverSlender?.();
     }, undefined, (err) => {
       console.warn("Error al cargar Slender_Woman_Lores.glb:", err);
+      this._resolverSlender?.();
     });
   }
 
@@ -1775,6 +1786,103 @@ export class SimbiotikWebGL {
         this.galaxyIdle = true;
       }
     }, 1700);
+  }
+
+  /**
+   * Precompila TODO antes de que el visitante pueda hacer scroll.
+   *
+   * El problema que resuelve: los fondos de cada sección (el túnel de Simbiosis,
+   * el agujero negro, el pasto, el vórtice de código, el terreno de olas, el
+   * modelo Slender) se crean con visible = false. Sus shaders no se compilan ni
+   * su geometría sube a la GPU hasta que entran en cuadro por primera vez, y esa
+   * compilación bloquea el hilo principal. Medido en producción: un frame de
+   * 1401 ms al entrar la sección 2, y varios de 380-480 ms en las siguientes.
+   *
+   * Aquí se hacen visibles todos a la vez, se compilan de golpe detrás de la
+   * pantalla de carga, y se restaura su visibilidad original. A partir de ahí el
+   * scroll no compila nada.
+   */
+  async prewarm(onProgress) {
+    const paso = (frac) => { try { onProgress?.(frac); } catch (e) { /* ignorar */ } };
+    // Ceder el hilo entre lotes: en una GPU lenta compilarlo todo de una sola vez
+    // produce exactamente el bloqueo que esto viene a evitar, solo que antes.
+    const respirar = () => new Promise((r) => requestAnimationFrame(() => setTimeout(r, 0)));
+
+    // El terreno de olas se crea en diferido; hay que materializarlo ahora.
+    if (!this.waterWaves && typeof this.initWaterWaves === 'function') {
+      this.initWaterWaves();
+    }
+    paso(0.05);
+
+    const restaurar = [];
+    const encender = (obj) => {
+      if (!obj) return false;
+      restaurar.push([obj, obj.visible]);
+      obj.visible = true;
+      obj.traverse?.((hijo) => {
+        if (hijo !== obj) {
+          restaurar.push([hijo, hijo.visible]);
+          hijo.visible = true;
+        }
+      });
+      return true;
+    };
+
+    // Un lote por fondo, en el orden en que el visitante los va a encontrar.
+    const lotes = [
+      ['tunel', [this.tunnelGroup]],
+      ['agujero-negro', [this.blackHoleGroup]],
+      ['pasto', [this.grassSystem]],
+      ['olas', [this.waterWaves]],
+      ['vortice', [this.codeVortexGroup]],
+      ['slender', [this.slenderWomanGroup]],
+      ['logo', [this.logoGroup, this.logoParticles, this.glowMesh, this.outerRing, this.innerRing]],
+      ['particulas', [this.particleSystem, this.spiralSystem]],
+    ];
+
+    try {
+      // UNA sola compilación con todo encendido. En GPUs con
+      // KHR_parallel_shader_compile esto ocurre en paralelo y no bloquea;
+      // llamarla una vez por lote recorrería la escena entera cada vez.
+      lotes.forEach(([, objetos]) => objetos.forEach(encender));
+
+      if (this.renderer.compileAsync) {
+        await this.renderer.compileAsync(this.scene, this.camera);
+      } else {
+        this.renderer.compile(this.scene, this.camera);
+      }
+      paso(0.45);
+      await respirar();
+
+      // Los renders sí van por lotes: cada uno sube a la GPU los buffers de su
+      // grupo, y ceder el hilo entre ellos evita un bloqueo largo en equipos
+      // lentos, que es justo lo que esto viene a eliminar.
+      lotes.forEach(([, objetos]) => objetos.forEach((o) => { if (o) o.visible = false; }));
+
+      for (let i = 0; i < lotes.length; i++) {
+        lotes[i][1].forEach((o) => { if (o) o.visible = true; });
+        this.renderer.render(this.scene, this.camera);
+        lotes[i][1].forEach((o) => { if (o) o.visible = false; });
+
+        paso(0.45 + ((i + 1) / lotes.length) * 0.45);
+        await respirar();
+      }
+
+      paso(0.95);
+    } catch (e) {
+      console.warn('Precompilación incompleta:', e);
+    } finally {
+      // Restaurar en orden inverso para respetar las jerarquías
+      for (let i = restaurar.length - 1; i >= 0; i--) {
+        restaurar[i][0].visible = restaurar[i][1];
+      }
+      // Un render final ya con la visibilidad real, para no dejar en el buffer
+      // el fotograma con todo encendido.
+      this.renderer.render(this.scene, this.camera);
+    }
+
+    this.prewarmed = true;
+    paso(1);
   }
 
   // Densidad de píxeles efectiva del escalón de calidad actual
