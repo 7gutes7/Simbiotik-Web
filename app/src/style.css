@@ -1,5 +1,4 @@
 /* Estilos de la evolución SimbiotiK - Estilo Active Theory */
-@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;700&family=Inter:wght@300;400;500;600&display=swap');
 
 /* Fuentes de Marca Oficiales de SimbiotiK */
 @font-face {
@@ -7,6 +6,9 @@
   src: url('/fonts/Neonblitz.otf') format('opentype');
   font-weight: normal;
   font-style: normal;
+  /* Pinta el texto con la fuente de respaldo en lugar de dejarlo invisible
+     mientras descarga el archivo (que no es pequeño). */
+  font-display: swap;
 }
 
 @font-face {
@@ -14,6 +16,9 @@
   src: url('/fonts/NeoNeon.otf') format('opentype');
   font-weight: normal;
   font-style: normal;
+  /* Pinta el texto con la fuente de respaldo en lugar de dejarlo invisible
+     mientras descarga el archivo (que no es pequeño). */
+  font-display: swap;
 }
 
 @font-face {
@@ -21,6 +26,9 @@
   src: url('/fonts/neonize.ttf') format('truetype');
   font-weight: normal;
   font-style: normal;
+  /* Pinta el texto con la fuente de respaldo en lugar de dejarlo invisible
+     mientras descarga el archivo (que no es pequeño). */
+  font-display: swap;
 }
 
 :root {
@@ -153,10 +161,15 @@ body.section-memoria-natural #waves-canvas {
 }
 
 /* Glassmorphism Panel */
+/* backdrop-filter obliga al navegador a capturar y desenfocar el fondo de cada
+   panel. Como el fondo aquí son dos canvas WebGL que cambian en cada frame, ese
+   trabajo se repite 60 veces por segundo y por panel (hay hasta 4 en pantalla).
+   Bajar el radio de 20px a 10px reduce el coste de forma notable manteniendo el
+   mismo efecto esmerilado sobre un fondo ya oscurecido al 65%. */
 .glass-panel {
   background: rgba(15, 15, 27, 0.65);
-  backdrop-filter: blur(20px);
-  -webkit-backdrop-filter: blur(20px);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
   border: 1px solid rgba(56, 189, 248, 0.06);
   border-radius: 8px;
   box-shadow: 0 20px 40px rgba(0, 0, 0, 0.3);
@@ -333,6 +346,10 @@ body.section-memoria-natural #waves-canvas {
   font-weight: 300;
 }
 
+.text-center {
+  text-align: center;
+}
+
 /* VISTAS DE SECCIÓN (PANELES CONTINUOS FLOTANTES) */
 .content-container {
   position: relative;
@@ -402,8 +419,8 @@ body.section-memoria-natural #waves-canvas {
   background: rgba(248, 250, 252, 0.88);
   border: 1px solid rgba(15, 23, 42, 0.12);
   box-shadow: 0 15px 35px rgba(0, 0, 0, 0.08);
-  backdrop-filter: blur(20px);
-  -webkit-backdrop-filter: blur(20px);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
 }
 
 .section-white .glass-panel:hover {
@@ -1017,9 +1034,25 @@ body.section-memoria-natural #waves-canvas {
   margin: 20px auto 28px auto;
 }
 
-/* DIMENSIÓN ALTERNA SECTION */
+
+
 #dimension-alterna .section-header {
-  transform: translateY(-100px);
+  position: relative;
+  text-align: center;
+  max-width: 800px;
+  z-index: 10;
+  margin: 0 auto 30px auto;
+}
+
+#dimension-alterna .section-header .section-desc {
+  text-align: center;
+  max-width: 580px;
+  margin: 0 auto;
+}
+
+#dimension-alterna .slender-hint-tag {
+  text-align: center;
+  margin-top: 15px;
 }
 
 .dimension-art-grid {
@@ -1028,17 +1061,21 @@ body.section-memoria-natural #waves-canvas {
   gap: 24px;
   width: 100%;
   max-width: 1100px;
-  margin: 40px auto 0 auto;
+  margin: 0 auto;
   opacity: 0;
-  transform: translateY(30px) scale(0.94);
+  max-height: 0;
+  overflow: hidden;
   pointer-events: none;
-  transition: opacity 0.6s cubic-bezier(0.16, 1, 0.3, 1), transform 0.6s cubic-bezier(0.16, 1, 0.3, 1);
+  transition: opacity 0.6s cubic-bezier(0.16, 1, 0.3, 1), transform 0.6s cubic-bezier(0.16, 1, 0.3, 1), max-height 0.6s cubic-bezier(0.16, 1, 0.3, 1);
+  transform: translateY(30px) scale(0.94);
 }
 
 .dimension-art-grid.expanded {
   opacity: 1;
-  transform: translateY(-80px) scale(1);
+  transform: translateY(0) scale(1);
   pointer-events: auto;
+  max-height: 2000px;
+  margin-top: 40px;
 }
 
 .slender-hint-tag {
@@ -2058,4 +2095,59 @@ a .glitch-char {
   100% {
     opacity: 0.45;
   }
+}
+
+/* ============================================================
+   MODO DE BAJO RENDIMIENTO
+   Lo activa webgl.js (clase .perf-low en <body>) cuando la resolución
+   adaptativa ha tenido que degradarse dos veces, es decir, cuando el equipo
+   no sostiene el presupuesto de frame. En esos casos se sacrifican los
+   efectos de composición más caros para conservar la fluidez del 3D, que es
+   lo que realmente se percibe. En un equipo capaz esta clase nunca se activa
+   y el sitio se ve exactamente igual que antes.
+   ============================================================ */
+
+body.perf-low .glass-panel,
+body.perf-low .section-white .glass-panel {
+  /* El desenfoque del fondo es lo más caro de toda la capa CSS */
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
+body.perf-low .glass-panel {
+  /* Se compensa con un fondo algo más opaco para no perder legibilidad */
+  background: rgba(15, 15, 27, 0.86);
+}
+
+body.perf-low .section-white .glass-panel {
+  background: rgba(248, 250, 252, 0.96);
+}
+
+body.perf-low .scanlines {
+  /* mix-blend-mode obliga a mezclar esta capa a pantalla completa con todo lo
+     que hay debajo, incluidos los dos canvas, en cada frame */
+  display: none;
+}
+
+body.perf-low .galaxy-background::before {
+  /* Un blur de 20px sobre una superficie del doble del viewport en cada eje */
+  filter: blur(10px);
+}
+
+/* ============================================================
+   GALAXIA EN REPOSO
+   El fondo de galaxias sólo es visible en la sección Simbiosis, pero sus dos
+   animaciones infinitas (rotación con blur de 20px y parpadeo de estrellas)
+   seguían corriendo y componiéndose en todas las demás secciones con opacidad 0.
+   webgl.js añade esta clase cuando la opacidad lleva un rato en cero, ya
+   terminada la transición de 1.5s, así que el desvanecido se ve igual.
+   ============================================================ */
+
+.galaxy-background.galaxy-idle {
+  visibility: hidden;
+}
+
+.galaxy-background.galaxy-idle::before,
+.galaxy-background.galaxy-idle::after {
+  animation-play-state: paused;
 }

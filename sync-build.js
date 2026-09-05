@@ -8,23 +8,56 @@ const __dirname = path.dirname(__filename);
 const rootDir = __dirname;
 const distDir = path.join(rootDir, 'dist');
 
+// Directorios generados en la raíz que se reemplazan por completo en cada build.
+// Si no se borran antes de copiar, se acumulan los bundles de builds anteriores
+// (llegamos a tener 9 copias de ~800 KB en assets/).
+const GENERATED_DIRS = ['assets'];
+
+// Ruido del Finder de macOS que no debe llegar al servidor
+const IGNORAR = new Set(['.DS_Store']);
+
+// Copia recursiva con primitivas básicas (mkdir + readFile + writeFile).
+// No se usa fs.cpSync a propósito: recurre a syscalls de copia nativa que
+// algunos sistemas de archivos montados rechazan con EACCES.
+function copiar(src, dest) {
+  const stat = fs.statSync(src);
+
+  if (stat.isDirectory()) {
+    fs.mkdirSync(dest, { recursive: true });
+    for (const entrada of fs.readdirSync(src)) {
+      if (IGNORAR.has(entrada)) continue;
+      copiar(path.join(src, entrada), path.join(dest, entrada));
+    }
+    return;
+  }
+
+  fs.mkdirSync(path.dirname(dest), { recursive: true });
+  fs.writeFileSync(dest, fs.readFileSync(src));
+}
+
 function sync() {
-  console.log('Syncing all compiled dist files to root for Hostinger static deployment...');
+  console.log('Sincronizando dist/ a la raíz para el despliegue estático en Hostinger...');
 
   if (!fs.existsSync(distDir)) {
-    console.error('dist directory does not exist!');
+    console.error('¡El directorio dist no existe!');
     process.exit(1);
   }
 
-  const items = fs.readdirSync(distDir);
-  for (const item of items) {
-    const srcPath = path.join(distDir, item);
-    const destPath = path.join(rootDir, item);
-    fs.cpSync(srcPath, destPath, { recursive: true, force: true });
-    console.log(`✓ Copied dist/${item} -> ./${item}`);
+  for (const dir of GENERATED_DIRS) {
+    const target = path.join(rootDir, dir);
+    if (fs.existsSync(target)) {
+      fs.rmSync(target, { recursive: true, force: true });
+      console.log(`✗ Limpiado ./${dir} (build anterior)`);
+    }
   }
 
-  console.log('Sync complete! All assets and 3D models are ready at root for Hostinger.');
+  for (const item of fs.readdirSync(distDir)) {
+    if (IGNORAR.has(item)) continue;
+    copiar(path.join(distDir, item), path.join(rootDir, item));
+    console.log(`✓ Copiado dist/${item} -> ./${item}`);
+  }
+
+  console.log('Sincronización completa. La raíz está lista para publicar.');
 }
 
 sync();

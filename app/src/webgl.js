@@ -153,18 +153,41 @@ const spiralFragmentShader = `
   }
 `;
 
+// Colores y objetos auxiliares reutilizados dentro del bucle de animación.
+// Antes se instanciaba un THREE.Color nuevo por malla y por frame dentro de los
+// traverse(), lo que generaba basura constante para el recolector.
+const COLOR_GRAY = new THREE.Color("#71717a");
+const COLOR_CHROME = new THREE.Color("#ffffff");
+const COLOR_SLENDER_BASE = new THREE.Color("#b87fbc");
+const COLOR_SLENDER_GLOW = new THREE.Color("#f472b6");
+const COLOR_SLENDER_EMISSIVE = new THREE.Color("#e879f9");
+const COLOR_BLACK = new THREE.Color("#000000");
+const DUMMY_BLOCK = new THREE.Object3D();
+const DUMMY_NEON = new THREE.Object3D();
+
 export class SimbiotikWebGL {
-  constructor() {
+  constructor(options = {}) {
     this.canvas = document.getElementById('webgl-canvas');
     if (!this.canvas) return;
 
+    // --- Resolución adaptativa -------------------------------------------
+    // La escena está limitada por fill rate (decenas de miles de sprites additive
+    // a pantalla completa), así que la cantidad de píxeles a rasterizar es la
+    // palanca dominante. Arrancamos en máxima calidad y sólo bajamos un escalón
+    // si el equipo no sostiene el presupuesto de frame.
+    this.dprTiers = [2, 1.5, 1.25, 1];
+    this.dprTierIndex = 0;
+    // En pantallas de alta densidad el propio sobremuestreo ya suaviza los bordes,
+    // de modo que el MSAA sólo añade coste sin diferencia perceptible.
+    const useAntialias = (window.devicePixelRatio || 1) < 1.5;
+
     this.renderer = new THREE.WebGLRenderer({
       canvas: this.canvas,
-      antialias: true,
+      antialias: useAntialias,
       alpha: true,
       powerPreference: "high-performance"
     });
-    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    this.renderer.setPixelRatio(this.currentPixelRatio());
     this.renderer.setSize(window.innerWidth, window.innerHeight);
 
     this.scene = new THREE.Scene();
@@ -177,12 +200,13 @@ export class SimbiotikWebGL {
     if (this.wavesCanvas) {
       this.wavesRenderer = new THREE.WebGLRenderer({
         canvas: this.wavesCanvas,
-        antialias: true,
+        antialias: useAntialias,
         alpha: true,
         powerPreference: "high-performance"
       });
-      this.wavesRenderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+      this.wavesRenderer.setPixelRatio(this.currentPixelRatio());
       this.wavesRenderer.setSize(window.innerWidth, window.innerHeight);
+      this.wavesHidden = false;
 
       this.wavesScene = new THREE.Scene();
       this.wavesCamera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 100);
@@ -208,13 +232,26 @@ export class SimbiotikWebGL {
     this.activeSection = 'inicio';
     this.currentLogoRotX = 0;
 
+    // La descarga del logo 3D se lanza ANTES de construir la geometría de la
+    // escena. Construirla primero costaba ~700 ms de CPU durante los cuales la
+    // red estaba ociosa: la petición del modelo no salía hasta el segundo 1.9.
+    if (options.logoUrl) {
+      this.loadLogoModel(options.logoUrl);
+    }
+
     this.initParticles();
     this.initSpiralParticles();
     this.initPlaceholderLogo();
     this.initTunnel();
     this.initGrass();
     this.initCodeVortex();
-    this.loadSlenderWomanModel('./Slender_Woman_Lores.glb');
+    // Este modelo sólo aparece en la sección Dimensión Alterna, la sexta. Cargarlo
+    // en el arranque le robaba ancho de banda al logo principal, que sí se ve de
+    // inmediato. Se pide cuando el navegador está ocioso, o antes si el usuario
+    // llega a esa sección primero.
+    this.slenderRequested = false;
+    const idle = window.requestIdleCallback || ((fn) => setTimeout(fn, 2000));
+    idle(() => this.ensureSlenderWomanModel(), { timeout: 4000 });
     this.setupSlenderInteractions();
     this.bindEvents();
     this.animate();
@@ -618,6 +655,11 @@ export class SimbiotikWebGL {
 
   // Carga del modelo 3D definitivo o extrusión a partir del vector SVG
   loadLogoModel(url) {
+    // Idempotente: la carga temprana del constructor no debe duplicarse si
+    // alguien vuelve a llamar al método desde fuera.
+    if (this.logoModelRequested === url) return;
+    this.logoModelRequested = url;
+
     if (url.endsWith('.svg')) {
       this.loadLogoFromSVG(url);
     } else if (url.endsWith('.gltf') || url.endsWith('.glb')) {
@@ -685,6 +727,13 @@ export class SimbiotikWebGL {
     }, undefined, (error) => {
       console.error("Error cargando el modelo GLTF/GLB:", error);
     });
+  }
+
+  // Carga bajo demanda del modelo Slender, una sola vez
+  ensureSlenderWomanModel() {
+    if (this.slenderRequested) return;
+    this.slenderRequested = true;
+    this.loadSlenderWomanModel('./Slender_Woman_Lores.glb');
   }
 
   // Cargar modelo 3D Slender_Woman_Lores para la sección Manifiesto
@@ -1571,6 +1620,12 @@ export class SimbiotikWebGL {
   // Manejar el cambio de posición de la cámara según la sección activa (Efecto Cinematic Scroll)
   triggerSectionTransition(sectionId) {
     this.activeSection = sectionId;
+
+    // Si el visitante llega a Dimensión Alterna antes de que el navegador
+    // haya estado ocioso, se fuerza la carga del modelo en ese momento.
+    if (sectionId === 'dimension-alterna') {
+      this.ensureSlenderWomanModel();
+    }
     let targetCamZ = 6;
     let targetCamY = 0;
     let targetCamX = 0;
@@ -1677,23 +1732,137 @@ export class SimbiotikWebGL {
     window.addEventListener('mousemove', (e) => {
       this.uniforms.uMouse.value.x = (e.clientX / window.innerWidth) * 2 - 1;
       this.uniforms.uMouse.value.y = -(e.clientY / window.innerHeight) * 2 + 1;
-    });
+    }, { passive: true });
 
+    // Un resize dispara decenas de eventos durante el arrastre y cada setSize
+    // reasigna los buffers de ambos renderers. Coalescemos a un ajuste por frame.
     window.addEventListener('resize', () => {
-      this.camera.aspect = window.innerWidth / window.innerHeight;
-      this.camera.updateProjectionMatrix();
-      this.renderer.setSize(window.innerWidth, window.innerHeight);
+      if (this.resizePending) return;
+      this.resizePending = true;
+      requestAnimationFrame(() => {
+        this.resizePending = false;
+        this.applyResize();
+      });
+    }, { passive: true });
+  }
 
-      if (this.wavesCamera && this.wavesRenderer) {
-        this.wavesCamera.aspect = window.innerWidth / window.innerHeight;
-        this.wavesCamera.updateProjectionMatrix();
-        this.wavesRenderer.setSize(window.innerWidth, window.innerHeight);
+  // El fondo de galaxias tiene dos animaciones infinitas, una de ellas con un
+  // blur de 20px sobre una superficie del doble del viewport en cada eje. Con
+  // opacidad 0 seguía animándose y componiéndose en las 8 secciones donde no se
+  // ve. Se oculta de verdad, pero sólo después de que termine la transición de
+  // 1.5s del CSS, para no cortar el desvanecido.
+  updateGalaxyIdleState(opacity) {
+    if (!this.galaxyBg) return;
+
+    if (opacity > 0) {
+      if (this.galaxyIdleTimer) {
+        clearTimeout(this.galaxyIdleTimer);
+        this.galaxyIdleTimer = null;
       }
-    });
+      if (this.galaxyIdle) {
+        this.galaxyBg.classList.remove('galaxy-idle');
+        this.galaxyIdle = false;
+      }
+      return;
+    }
+
+    if (this.galaxyIdle || this.galaxyIdleTimer) return;
+
+    this.galaxyIdleTimer = setTimeout(() => {
+      this.galaxyIdleTimer = null;
+      if (this.lastGalaxyOpacity === 0) {
+        this.galaxyBg.classList.add('galaxy-idle');
+        this.galaxyIdle = true;
+      }
+    }, 1700);
+  }
+
+  // Densidad de píxeles efectiva del escalón de calidad actual
+  currentPixelRatio() {
+    return Math.min(window.devicePixelRatio || 1, this.dprTiers[this.dprTierIndex]);
+  }
+
+  applyResize() {
+    const w = window.innerWidth;
+    const h = window.innerHeight;
+    const dpr = this.currentPixelRatio();
+
+    this.camera.aspect = w / h;
+    this.camera.updateProjectionMatrix();
+    this.renderer.setPixelRatio(dpr);
+    this.renderer.setSize(w, h);
+
+    if (this.wavesCamera && this.wavesRenderer) {
+      this.wavesCamera.aspect = w / h;
+      this.wavesCamera.updateProjectionMatrix();
+      this.wavesRenderer.setPixelRatio(dpr);
+      this.wavesRenderer.setSize(w, h);
+    }
+  }
+
+  // Mide el tiempo de frame en ventanas de ~45 muestras y ajusta la resolución.
+  // Con histéresis: baja rápido cuando se sufre, sube despacio y deja de intentar
+  // subir tras varias degradaciones para no oscilar.
+  updateAdaptiveResolution() {
+    const now = performance.now();
+
+    if (this.lastFrameStamp === undefined) {
+      this.lastFrameStamp = now;
+      this.frameSamples = [];
+      this.stableWindows = 0;
+      this.downgrades = 0;
+      return;
+    }
+
+    const delta = now - this.lastFrameStamp;
+    this.lastFrameStamp = now;
+
+    // Descartar saltos ajenos al render (cambio de pestaña, bloqueo del sistema)
+    if (delta > 200) return;
+
+    this.frameSamples.push(delta);
+    if (this.frameSamples.length < 45) return;
+
+    this.frameSamples.sort((a, b) => a - b);
+    const median = this.frameSamples[this.frameSamples.length >> 1];
+    this.frameSamples.length = 0;
+
+    if (median > 20 && this.dprTierIndex < this.dprTiers.length - 1) {
+      // Por debajo de ~50 fps: bajar un escalón de resolución
+      this.dprTierIndex++;
+      this.downgrades++;
+      this.stableWindows = 0;
+      this.applyResize();
+
+      // Dos degradaciones seguidas significan que bajar resolución no bastó:
+      // el equipo tampoco sostiene las capas de composición del CSS. Se apagan
+      // los efectos más caros (desenfoque de fondo de los paneles, scanlines
+      // con mezcla a pantalla completa) a favor de la fluidez.
+      if (this.downgrades >= 2 && !this.lowPerfMode) {
+        this.lowPerfMode = true;
+        document.body.classList.add('perf-low');
+      }
+    } else if (median < 13 && this.dprTierIndex > 0 && this.downgrades < 3) {
+      // Holgura clara y sostenida: recuperar calidad
+      this.stableWindows++;
+      if (this.stableWindows >= 4) {
+        this.dprTierIndex--;
+        this.stableWindows = 0;
+        this.applyResize();
+      }
+    } else {
+      this.stableWindows = 0;
+    }
   }
 
   animate() {
     requestAnimationFrame(() => this.animate());
+
+    // Con la pestaña en segundo plano el navegador estrangula el rAF pero el
+    // frame se sigue calculando y componiendo. Salir aquí lo evita por completo.
+    if (document.hidden) return;
+
+    this.updateAdaptiveResolution();
 
     // Incrementar variable de tiempo para ondas y ruido
     this.uniforms.uTime.value += 0.012;
@@ -1703,7 +1872,15 @@ export class SimbiotikWebGL {
     this.uniforms.uAudioFreq.value = simulatedFreq;
 
     // Calcular progreso de la sección Simbiosis Sonido
-    const simbiosisSection = document.getElementById('simbiosis-sonido');
+    // Nodos cacheados: antes se resolvían con getElementById + querySelector
+    // en cada frame, 60 veces por segundo, para elementos que nunca cambian.
+    if (this.simbiosisSection === undefined) {
+      this.simbiosisSection = document.getElementById('simbiosis-sonido');
+      this.galaxyBg = document.querySelector('.galaxy-background');
+      this.lastGalaxyOpacity = -1;
+    }
+
+    const simbiosisSection = this.simbiosisSection;
     let newSectionProgress = 0.0;
     if (simbiosisSection) {
       const rect = simbiosisSection.getBoundingClientRect();
@@ -1717,10 +1894,17 @@ export class SimbiotikWebGL {
 
       this.uniforms.uNewSectionProgress.value = newSectionProgress;
 
-      // Actualizar opacidad del fondo de galaxias animado en el DOM
-      const galaxyBg = document.querySelector('.galaxy-background');
-      if (galaxyBg) {
-        galaxyBg.style.opacity = newSectionProgress;
+      // Actualizar opacidad del fondo de galaxias animado en el DOM.
+      // Escribir sólo cuando el valor cambia de verdad evita invalidar el estilo
+      // del elemento en cada frame (antes se reescribía siempre, incluso con el
+      // mismo número, forzando trabajo de estilo y composición innecesario).
+      if (this.galaxyBg) {
+        const galaxyOpacity = Math.round(newSectionProgress * 100) / 100;
+        if (galaxyOpacity !== this.lastGalaxyOpacity) {
+          this.galaxyBg.style.opacity = galaxyOpacity;
+          this.lastGalaxyOpacity = galaxyOpacity;
+          this.updateGalaxyIdleState(galaxyOpacity);
+        }
       }
     }
 
@@ -1744,8 +1928,8 @@ export class SimbiotikWebGL {
         // Mostrar túnel
         this.tunnelGroup.visible = true;
 
-        const dummyBlock = new THREE.Object3D();
-        const dummyNeon = new THREE.Object3D();
+        const dummyBlock = DUMMY_BLOCK;
+        const dummyNeon = DUMMY_NEON;
 
         this.instancedData.forEach((data) => {
           let z = data.initialZ - (this.tunnelScrollOffset * spacing);
@@ -2010,7 +2194,7 @@ export class SimbiotikWebGL {
 
         // Actualizar propiedades físicas del material para Contacto o fundir a metal cromo brillante (igual a El Símbolo)
         const isContacto = (this.activeSection === 'contacto');
-        const grayColor = new THREE.Color("#71717a");
+        const grayColor = COLOR_GRAY;
 
         this.logoGroup.traverse((child) => {
           if (child.isMesh) {
@@ -2037,7 +2221,7 @@ export class SimbiotikWebGL {
                 mat.thickness = 2.5 * (1.0 - goldFactor);
 
                 // Interpolar color al blanco cromo brillante
-                const chromeColor = new THREE.Color("#ffffff");
+                const chromeColor = COLOR_CHROME;
                 mat.color.copy(this.colorTheme).lerp(chromeColor, goldFactor);
               }
             } else if (child.material) {
@@ -2056,8 +2240,8 @@ export class SimbiotikWebGL {
 
       if (this.slenderWomanGroup) {
         if (this.slenderWomanMesh) {
-          const slenderBaseColor = new THREE.Color("#b87fbc");
-          const slenderGlowColor = new THREE.Color("#f472b6"); // Magenta/fucsia luminoso al hacer hover
+          const slenderBaseColor = COLOR_SLENDER_BASE;
+          const slenderGlowColor = COLOR_SLENDER_GLOW; // Magenta/fucsia luminoso al hacer hover
           const targetColor = (isDimensionAlterna && this.isSlenderHovered) ? slenderGlowColor : slenderBaseColor;
           const targetOpacity = (isDimensionAlterna && this.isSlenderHovered) ? 0.95 : (isDimensionAlterna ? 0.3 : 0.0);
 
@@ -2070,7 +2254,7 @@ export class SimbiotikWebGL {
               child.material.transparent = true;
               child.material.color.lerp(targetColor, 0.08);
               if (child.material.emissive) {
-                const emissiveTarget = (isDimensionAlterna && this.isSlenderHovered) ? new THREE.Color("#e879f9") : new THREE.Color("#000000");
+                const emissiveTarget = (isDimensionAlterna && this.isSlenderHovered) ? COLOR_SLENDER_EMISSIVE : COLOR_BLACK;
                 child.material.emissive.lerp(emissiveTarget, 0.08);
                 child.material.emissiveIntensity = (isDimensionAlterna && this.isSlenderHovered) ? 0.8 : 0.0;
               }
@@ -2087,8 +2271,8 @@ export class SimbiotikWebGL {
         }
 
         if (this.slenderWomanGroup.visible) {
-          // Centrado vertical respecto a la cámara y ubicado en el fondo profundo detrás de los contenedores (Z = -3.0)
-          this.slenderWomanGroup.position.y = this.camera.position.y;
+          // Centrado vertical respecto a la cámara, desplazado hacia abajo (-1.3) para dar espacio a los textos arriba
+          this.slenderWomanGroup.position.y = this.camera.position.y - 1.3;
           this.slenderWomanGroup.position.z = -3.0;
           // Rotación sutil y fluida sobre el eje Y
           this.slenderWomanGroup.rotation.y += 0.003;
@@ -2139,8 +2323,36 @@ export class SimbiotikWebGL {
     }
 
     this.renderer.render(this.scene, this.camera);
+
+    // El canvas secundario contiene únicamente el terreno de olas, que está
+    // invisible en 7 de las 9 secciones. Cuando no hay nada que dibujar se evita
+    // el pase de render y además se saca la capa de la composición del navegador
+    // (una superficie a pantalla completa menos por frame). Se oculta con
+    // visibility para no tocar el z-index ni la transición de opacidad del CSS.
     if (this.wavesRenderer && this.wavesScene && this.wavesCamera) {
-      this.wavesRenderer.render(this.wavesScene, this.wavesCamera);
+      // Se mira la opacidad real del material, no sólo el flag .visible: al
+      // salir de Memoria Natural el fundido deja uOpacity en 0 pero el flag
+      // podía quedarse en true, y entonces se seguía dibujando y componiendo
+      // una capa a pantalla completa completamente transparente.
+      const wavesOpacity = this.waterWaves?.material?.uniforms?.uOpacity?.value;
+      const wavesActive = !!(
+        this.waterWaves &&
+        this.waterWaves.visible &&
+        (wavesOpacity === undefined || wavesOpacity > 0.001)
+      );
+
+      if (wavesActive) {
+        if (this.wavesHidden) {
+          this.wavesCanvas.style.visibility = '';
+          this.wavesHidden = false;
+        }
+        this.wavesRenderer.render(this.wavesScene, this.wavesCamera);
+      } else if (!this.wavesHidden) {
+        // Un clear final para no dejar congelado el último frame en el buffer
+        this.wavesRenderer.clear();
+        this.wavesCanvas.style.visibility = 'hidden';
+        this.wavesHidden = true;
+      }
     }
   }
 }

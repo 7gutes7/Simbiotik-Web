@@ -8,10 +8,9 @@ import gsap from 'gsap';
 document.addEventListener('DOMContentLoaded', () => {
 
   // 1. INICIALIZAR WEBGL CANVAS
-  const webgl = new SimbiotikWebGL();
-
-  // Carga del modelo 3D GLTF/GLB en formato Cromo Azul
-  webgl.loadLogoModel('./smbtk1.glb');
+  // La URL del modelo se pasa al constructor para que la descarga arranque antes
+  // de construir la escena, no después (ver comentario en webgl.js).
+  const webgl = new SimbiotikWebGL({ logoUrl: './smbtk1.glb' });
 
   // 1.5 CURSOR PERSONALIZADO (Punto)
   const cursor = document.createElement('div');
@@ -132,57 +131,111 @@ document.addEventListener('DOMContentLoaded', () => {
     const navbarHeight = document.querySelector('.navbar')?.offsetHeight || 60;
     const maxScroll = Math.max(0, document.documentElement.scrollHeight - vh);
 
+    let sectionIndex = parseInt(section.getAttribute('data-section-index'), 10);
+    if (isNaN(sectionIndex)) {
+      const idMap = {
+        'inicio': 1,
+        'simbiosis-sonido': 2,
+        'memoria-intro': 3,
+        'memoria-natural': 4,
+        'simbolo': 5,
+        'dimension-alterna': 6,
+        'manifiesto': 7,
+        'press-kit': 8,
+        'contacto': 9
+      };
+      sectionIndex = idMap[section.id] || 0;
+    }
+
     let targetY = 0;
 
-    // 1. Hero / Inicio (Tope absoluto de pantalla)
-    if (section.id === 'inicio') {
-      targetY = 0;
-    }
-    // 2. Simbiosis Sonido
-    else if (section.id === 'simbiosis-sonido') {
-      const rect = section.getBoundingClientRect();
-      const absTop = currentScrollY + rect.top;
-      targetY = Math.max(0, absTop + (rect.height > vh ? vh : rect.height / 2 - vh / 2));
-    }
-    // 3. Agujero Negro (memoria-intro): centro magnético anterior (-20px offset)
-    else if (section.id === 'memoria-intro') {
-      const rect = section.getBoundingClientRect();
-      const absTop = currentScrollY + rect.top;
-      targetY = Math.max(0, absTop - 20);
-    }
-    // 4. Memoria Natural: centro magnético subido 40px (-40px offset)
-    else if (section.id === 'memoria-natural') {
-      const container = section.querySelector('.container') || section;
-      const rect = container.getBoundingClientRect();
-      const absTop = currentScrollY + rect.top;
-      targetY = Math.max(0, absTop + rect.height / 2 - vh / 2 - 55);
-    }
-    // 5. El Manifiesto: centro magnético alineado al encabezado y barra de navegación
-    else if (section.id === 'manifiesto') {
-      const techSubtitle = section.querySelector('.tech-subtitle');
-      if (techSubtitle) {
-        const subRect = techSubtitle.getBoundingClientRect();
-        targetY = Math.max(0, currentScrollY + subRect.top - navbarHeight - 20);
-      } else {
-        const container = section.querySelector('.container') || section;
-        const rect = container.getBoundingClientRect();
-        targetY = Math.max(0, currentScrollY + rect.top);
-      }
-    }
-    // 6. Press Kit: centro magnético dedicado para encuadrar perfectamente el contenido
-    else if (section.id === 'press-kit') {
-      const container = section.querySelector('.container') || section;
-      const rect = container.getBoundingClientRect();
-      const absTop = currentScrollY + rect.top;
-      targetY = Math.max(0, absTop + rect.height / 2 - vh / 2 - 25);
-    }
-    // 7. Contacto o Secciones Generales
-    else {
-      const contentElement = section.querySelector('.container') || section.querySelector('.symbol-text-panel') || section;
-      const contentRect = contentElement.getBoundingClientRect();
-      const contentAbsTop = currentScrollY + contentRect.top;
-      const idealScroll = contentAbsTop + contentRect.height / 2 - vh / 2;
-      targetY = Math.max(0, idealScroll);
+    switch (sectionIndex) {
+      case 1: // SECCIÓN 1: INICIO (Tope absoluto de pantalla)
+        targetY = 0;
+        break;
+
+      case 2: // SECCIÓN 2: SIMBIOSIS SONIDO
+        {
+          const rect = section.getBoundingClientRect();
+          const absTop = currentScrollY + rect.top;
+          targetY = Math.max(0, absTop + (rect.height > vh ? vh : rect.height / 2 - vh / 2));
+        }
+        break;
+
+      case 3: // SECCIÓN 3: AGUJERO NEGRO (memoria-intro)
+        {
+          const rect = section.getBoundingClientRect();
+          const absTop = currentScrollY + rect.top;
+          targetY = Math.max(0, absTop - 20);
+        }
+        break;
+
+      case 4: // SECCIÓN 4: MEMORIA NATURAL
+        {
+          const container = section.querySelector('.container') || section;
+          const rect = container.getBoundingClientRect();
+          const absTop = currentScrollY + rect.top;
+          targetY = Math.max(0, absTop + rect.height / 2 - vh / 2 - 55);
+        }
+        break;
+
+      case 5: // SECCIÓN 5: EL SÍMBOLO
+        {
+          // Centro magnético específico para la sección Símbolo (centrado geométrico de su panel interactivo)
+          const container = section.querySelector('.container') || section;
+          const rect = container.getBoundingClientRect();
+          const absTop = currentScrollY + rect.top;
+          targetY = Math.max(0, absTop + rect.height / 2 - vh / 2);
+        }
+        break;
+
+      case 6: // SECCIÓN 6: DIMENSIÓN ALTERNA
+        {
+          const container = section.querySelector('.container') || section;
+          const rect = container.getBoundingClientRect();
+          const absTop = currentScrollY + rect.top;
+          targetY = Math.max(0, absTop + rect.height / 2 - vh / 2);
+        }
+        break;
+
+      case 7: // SECCIÓN 7: EL MANIFIESTO
+        {
+          const techSubtitle = section.querySelector('.tech-subtitle');
+          if (techSubtitle) {
+            const subRect = techSubtitle.getBoundingClientRect();
+            targetY = Math.max(0, currentScrollY + subRect.top - navbarHeight - 20);
+          } else {
+            const container = section.querySelector('.container') || section;
+            const rect = container.getBoundingClientRect();
+            targetY = Math.max(0, currentScrollY + rect.top);
+          }
+        }
+        break;
+
+      case 8: // SECCIÓN 8: PRESS KIT
+        {
+          const container = section.querySelector('.container') || section;
+          const rect = container.getBoundingClientRect();
+          const absTop = currentScrollY + rect.top;
+          targetY = Math.max(0, absTop + rect.height / 2 - vh / 2 - 25);
+        }
+        break;
+
+      case 9: // SECCIÓN 9: CONTACTO
+        {
+          const container = section.querySelector('.container') || section;
+          const rect = container.getBoundingClientRect();
+          const absTop = currentScrollY + rect.top;
+          targetY = Math.max(0, absTop + rect.height / 2 - vh / 2);
+        }
+        break;
+
+      default:
+        {
+          const rect = section.getBoundingClientRect();
+          targetY = Math.max(0, currentScrollY + rect.top + rect.height / 2 - vh / 2);
+        }
+        break;
     }
 
     return Math.min(maxScroll, targetY);

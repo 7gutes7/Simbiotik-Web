@@ -1,0 +1,84 @@
+# ============================================================
+# SimbiotiK — configuración de entrega estática (LiteSpeed / Hostinger)
+# Todas las directivas van dentro de <IfModule> para que el servidor las ignore
+# sin error si el módulo no está disponible.
+# ============================================================
+
+# ---------- Compresión ----------
+# El HTML, el JS y el CSS ya salían comprimidos con brotli, pero las fuentes no:
+# Neonblitz.otf viajaba con sus 118.904 bytes en crudo en cada visita.
+<IfModule mod_deflate.c>
+  AddOutputFilterByType DEFLATE text/html text/plain text/css text/xml
+  AddOutputFilterByType DEFLATE application/javascript application/x-javascript
+  AddOutputFilterByType DEFLATE application/json application/xml
+  AddOutputFilterByType DEFLATE image/svg+xml
+  AddOutputFilterByType DEFLATE font/otf font/ttf application/x-font-opentype application/x-font-ttf
+  AddOutputFilterByType DEFLATE model/gltf-binary
+</IfModule>
+
+# ---------- Tipos MIME ----------
+<IfModule mod_mime.c>
+  AddType model/gltf-binary            .glb
+  AddType model/gltf+json              .gltf
+  AddType font/otf                     .otf
+  AddType font/ttf                     .ttf
+  AddType font/woff2                   .woff2
+  AddType image/svg+xml                .svg
+</IfModule>
+
+# ---------- Caché ----------
+# Los archivos de assets/ llevan hash en el nombre: cambian de nombre al cambiar
+# de contenido, así que se pueden cachear para siempre.
+<IfModule mod_headers.c>
+  <FilesMatch "\.(js|css)$">
+    Header set Cache-Control "public, max-age=31536000, immutable"
+  </FilesMatch>
+
+  # Fuentes y modelos 3D: no llevan hash, pero cambian muy rara vez.
+  <FilesMatch "\.(otf|ttf|woff|woff2|glb|gltf)$">
+    Header set Cache-Control "public, max-age=2592000"
+  </FilesMatch>
+
+  <FilesMatch "\.(svg|png|jpg|jpeg|webp|avif|ico)$">
+    Header set Cache-Control "public, max-age=2592000"
+  </FilesMatch>
+
+  # El HTML nunca se cachea: es lo que apunta a los assets con hash nuevo.
+  <FilesMatch "\.(html)$">
+    Header set Cache-Control "public, max-age=0, must-revalidate"
+  </FilesMatch>
+</IfModule>
+
+<IfModule mod_expires.c>
+  ExpiresActive On
+  ExpiresByType text/css                  "access plus 1 year"
+  ExpiresByType application/javascript    "access plus 1 year"
+  ExpiresByType font/otf                  "access plus 1 month"
+  ExpiresByType font/ttf                  "access plus 1 month"
+  ExpiresByType font/woff2                "access plus 1 month"
+  ExpiresByType model/gltf-binary         "access plus 1 month"
+  ExpiresByType image/svg+xml             "access plus 1 month"
+  ExpiresByType text/html                 "access plus 0 seconds"
+</IfModule>
+
+# ---------- Qué NO se publica ----------
+# Hostinger sirve la raíz del repositorio, así que todo lo que esté en él es
+# accesible por web salvo que se bloquee aquí. Antes de esto quedaban expuestos
+# el código fuente sin minificar, package.json, el manual de marca y los .ai.
+<IfModule mod_rewrite.c>
+  RewriteEngine On
+
+  # Directorios de trabajo: fuente, material original, utilidades, salida intermedia
+  RewriteRule ^(app|raw_assets|tools|dist|node_modules)/ - [F,L]
+
+  # Archivos de configuración del proyecto
+  RewriteRule ^(package\.json|package-lock\.json|vite\.config\.js|sync-build\.js|BUILD\.md)$ - [F,L]
+
+  # Formatos que nunca deben servirse: originales de diseño, documentos, logs
+  RewriteRule \.(ai|psd|sketch|fig|md|log|lock|docx)$ - [F,L]
+</IfModule>
+
+# ---------- No listar directorios ----------
+<IfModule mod_autoindex.c>
+  Options -Indexes
+</IfModule>
