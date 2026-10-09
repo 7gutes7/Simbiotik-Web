@@ -83,6 +83,19 @@ document.addEventListener('DOMContentLoaded', () => {
     wheelMultiplier: 1.0
   });
 
+  // Táctil: scroll 100% nativo. Lenis escucha touchstart/touchmove/touchend
+  // como NO pasivos, así que cada movimiento del dedo esperaba al hilo
+  // principal (ocupado con WebGL) y el scroll se trababa en el hero. Con
+  // syncTouch desactivado Lenis no usa esos eventos, de modo que se retiran;
+  // sigue sincronizado con el scroll nativo (eventos 'scroll', scrollTo).
+  // El bloqueo de scroll del preloader lo mantiene html.cargando en el CSS.
+  if (navigator.maxTouchPoints > 0 && lenis.virtualScroll) {
+    const vs = lenis.virtualScroll;
+    vs.element.removeEventListener('touchstart', vs.onTouchStart, { passive: false });
+    vs.element.removeEventListener('touchmove', vs.onTouchMove, { passive: false });
+    vs.element.removeEventListener('touchend', vs.onTouchEnd, { passive: false });
+  }
+
   let isSnapping = false;
   let isNavigating = false;
 
