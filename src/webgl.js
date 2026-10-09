@@ -5,12 +5,25 @@ import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import gsap from 'gsap';
 
 
+// Recorte del fondo del hero por la cortina de entrada de Simbiosis.
+// uCortina: x = yc, y = tan, z = mitad del ancho, w = alto (px CSS).
+// Lo que cae por debajo de la linea ya lo tapa la cortina y no se pinta.
+const cortinaHeroGLSL = `
+  uniform vec4 uCortina;
+  uniform float uDpr;
+
+  bool bajoCortina() {
+    vec2 p = gl_FragCoord.xy / uDpr;
+    float yCss = uCortina.w - p.y;
+    return yCss > uCortina.x + (uCortina.z - p.x) * uCortina.y;
+  }
+`;
+
 // Vertex Shader para las partículas de fondo (Movimiento únicamente orbital alrededor del logo 3D)
 const vertexShader = `
   uniform float uTime;
   uniform float uAudioFreq;
   uniform vec2 uMouse;
-  uniform float uNewSectionProgress;
   attribute vec3 aRandoms;
   varying vec3 vColor;
   varying float vOpacity;
@@ -33,7 +46,7 @@ const vertexShader = `
     gl_PointSize = (14.0 / -mvPosition.z);
     
     vColor = color;
-    vOpacity = (0.3 + 0.7 * sin(uTime * aRandoms.x + aRandoms.y)) * (1.0 - uNewSectionProgress);
+    vOpacity = 0.3 + 0.7 * sin(uTime * aRandoms.x + aRandoms.y);
   }
 `;
 
@@ -41,7 +54,6 @@ const vertexShader = `
 const spiralVertexShader = `
   uniform float uTime;
   uniform vec2 uMouse;
-  uniform float uNewSectionProgress;
   attribute float aIndex;
   attribute float aSizeScale;
   attribute float aColorFactor;
@@ -86,8 +98,8 @@ const spiralVertexShader = `
     vec4 mvPosition = modelViewMatrix * vec4(pos, 1.0);
     gl_Position = projectionMatrix * mvPosition;
     
-    // Tamaño de partícula aleatorio y variable (aspecto de la imagen) - se agranda en la nueva sección
-    gl_PointSize = (aSizeScale * 25.0 / -mvPosition.z) * (1.0 + uNewSectionProgress * 0.6);
+    // Tamaño de partícula aleatorio y variable (aspecto de la imagen)
+    gl_PointSize = aSizeScale * 25.0 / -mvPosition.z;
     
     // Mezcla de colores Verde Aqua y Morado Neon
     vec3 colorAqua = vec3(0.0, 0.96, 0.83); // Verde Aqua
@@ -103,8 +115,10 @@ const spiralVertexShader = `
 const fragmentShader = `
   varying vec3 vColor;
   varying float vOpacity;
-
+${cortinaHeroGLSL}
   void main() {
+    if (bajoCortina()) discard;
+
     // Dibuja círculos suaves en lugar de cuadrados ásperos
     float dist = distance(gl_PointCoord, vec2(0.5));
     if (dist > 0.5) discard;
@@ -114,42 +128,19 @@ const fragmentShader = `
   }
 `;
 
-// Fragment Shader para las partículas en espiral (Pellets Brillantes)
+// Fragment Shader para las partículas en espiral (círculo difuminado suave).
+// Ya no se desenfoca al entrar en Simbiosis: la tapa la cortina.
 const spiralFragmentShader = `
-  uniform float uNewSectionProgress;
   varying vec3 vColor;
   varying float vOpacity;
-
+${cortinaHeroGLSL}
   void main() {
+    if (bajoCortina()) discard;
+
     float dist = distance(gl_PointCoord, vec2(0.5));
     if (dist > 0.5) discard;
 
-    // 1. Apariencia original (círculo difuminado suave)
-    float alphaOriginal = smoothstep(0.5, 0.05, dist) * vOpacity;
-    vec4 colorOriginal = vec4(vColor, alphaOriginal);
-
-    // 2. Apariencia de Pellet Brillante (esfera 3D con luz difusa y brillo especular)
-    vec2 normalCoord = gl_PointCoord - vec2(0.5);
-    float r2 = dot(normalCoord, normalCoord);
-    float z = sqrt(max(0.25 - r2, 0.0));
-    vec3 normal = normalize(vec3(normalCoord, z));
-    
-    // Dirección de luz desde la esquina superior derecha delantera
-    vec3 lightDir = normalize(vec3(1.0, 1.0, 1.5));
-    float diffuse = max(dot(normal, lightDir), 0.0);
-    
-    vec3 viewDir = vec3(0.0, 0.0, 1.0);
-    vec3 halfDir = normalize(lightDir + viewDir);
-    float specular = pow(max(dot(normal, halfDir), 0.0), 20.0);
-    
-    // Pellet sumamente brillante con glow blanco y base de color
-    vec3 pelletColor = vColor * (diffuse * 0.8 + 0.3) + vec3(specular * 1.6);
-    // El pellet es sólido en el centro y se desvanece de golpe en los bordes
-    float alphaPellet = smoothstep(0.5, 0.45, dist) * (vOpacity * 1.4);
-    vec4 colorPellet = vec4(pelletColor, alphaPellet);
-
-    // Mezclar ambos estados según la transición de sección y desvanecer al entrar
-    gl_FragColor = mix(colorOriginal, colorPellet, uNewSectionProgress) * (1.0 - uNewSectionProgress);
+    gl_FragColor = vec4(vColor, smoothstep(0.5, 0.05, dist) * vOpacity);
   }
 `;
 
@@ -193,8 +184,13 @@ export class SimbiotikWebGL {
       uTime: { value: 0 },
       uAudioFreq: { value: 0 },
       uMouse: { value: new THREE.Vector2(0, 0) },
-      uNewSectionProgress: { value: 0 }
+      uNewSectionProgress: { value: 0 },
+      // Linea de la cortina de Simbiosis; yc enorme = sin recorte
+      uCortina: { value: new THREE.Vector4(1e6, 0, 0, 0) },
+      uDpr: { value: this.renderer.getPixelRatio() }
     };
+    // El fondo del hero se apaga cuando la cortina lo tapa entero
+    this.heroBgApagado = false;
 
     this.logoMesh = null;
     this.logoSpinSpeed = 0.005;
@@ -306,7 +302,8 @@ export class SimbiotikWebGL {
       uniforms: {
         uTime: this.spiralTimeUniform,
         uMouse: this.uniforms.uMouse,
-        uNewSectionProgress: this.uniforms.uNewSectionProgress
+        uCortina: this.uniforms.uCortina,
+        uDpr: this.uniforms.uDpr
       },
       transparent: true,
       depthWrite: false,
@@ -1656,12 +1653,21 @@ export class SimbiotikWebGL {
       // sIn  = 0 con el borde superior abajo de la pantalla, 1 al llegar arriba.
       // sOut = 0 mientras el borde inferior sigue abajo, 1 al llegar arriba.
       // Las dos barren de abajo hacia arriba: una revela, la otra oculta.
+      const vh = Math.max(1, viewHeight);
+      const sIn = 1 - rect.top / vh;
       if (this.purpleRoom) {
-        const vh = Math.max(1, viewHeight);
-        const sIn = 1 - rect.top / vh;
         const sOut = 1 - (rect.top + rect.height) / vh;
         this.purpleRoom.setCortina(sIn, sOut);
+
+        // El fondo del hero (anillo de particulas + espiral) se recorta con la
+        // misma linea, asi la cortina lo tapa en vez de desenfocarlo.
+        const l = this.purpleRoom.lineaEntrada();
+        const dpr = this.renderer.getPixelRatio();
+        this.uniforms.uDpr.value = dpr;
+        this.uniforms.uCortina.value.set(l.yc, l.tan, l.mitadW, this.canvas.height / dpr);
       }
+      // Con la cortina arriba del todo el fondo del hero deja de pintarse.
+      this.heroBgApagado = sIn >= 0.999;
     }
 
     // Animar la columna de partículas (se pausa progresivamente hasta detenerse en la sección Simbiosis)
@@ -1763,9 +1769,9 @@ export class SimbiotikWebGL {
       this.logoGroup.visible = true;
     }
     if (this.particleSystem) {
-      // El logo de partículas se mantiene en todas las secciones, incluida
-      // Simbiosis: va por delante del fondo de purple-room.js.
-      this.particleSystem.visible = true;
+      // Fondo del hero: lo tapa la cortina de Simbiosis y queda apagado de
+      // ahi para abajo.
+      this.particleSystem.visible = !this.heroBgApagado;
       this.particleSystem.rotation.y += 0.0006;
     }
 
@@ -1788,10 +1794,11 @@ export class SimbiotikWebGL {
 
       // Lerp suave de rotaciones X, Y y Z para las secciones Memoria Natural y Agujero Negro
       const isMemoria = (this.activeSection === 'memoria-intro' || this.activeSection === 'memoria-natural');
-      // Ocultar las partículas que caen de arriba a abajo en Agujero Negro, Memoria Natural, El Símbolo, El Manifiesto y Press Kit
-      const isHiddenSpiral = (isMemoria || this.activeSection === 'simbiosis-sonido' || this.activeSection === 'simbolo' || this.activeSection === 'manifiesto' || this.activeSection === 'press-kit');
+      // Ocultar las partículas que caen de arriba a abajo en Agujero Negro, Memoria Natural, El Símbolo, El Manifiesto y Press Kit.
+      // En Simbiosis no se cortan de golpe: las tapa la cortina (heroBgApagado).
+      const isHiddenSpiral = (isMemoria || this.activeSection === 'simbolo' || this.activeSection === 'manifiesto' || this.activeSection === 'press-kit');
       if (this.spiralSystem) {
-        this.spiralSystem.visible = !isHiddenSpiral;
+        this.spiralSystem.visible = !isHiddenSpiral && !this.heroBgApagado;
       }
 
       // Giro continuo alrededor del eje Z únicamente en la sección Memoria Natural

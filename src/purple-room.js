@@ -255,6 +255,14 @@ export class PurpleRoom {
     }
   }
 
+  // Linea de la cortina de entrada en px CSS: y(x) = yc + (mitadW - x) * tan.
+  // Lo que queda por encima de la linea es lo de antes (el fondo del hero).
+  lineaEntrada() {
+    const tan = Math.tan((GRADOS_CORTINA * Math.PI) / 180);
+    const dh = this.W * tan;
+    return { yc: (this.H + dh / 2) - this.sIn * (this.H + dh), tan, mitadW: this.W / 2 };
+  }
+
   // Recorta al area de la cortina. Devuelve false si no hay nada que pintar.
   aplicarCortina(ctx) {
     const { W, H } = this;
