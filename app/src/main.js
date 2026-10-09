@@ -755,12 +755,15 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 
-  // 11. CENTRO MAGNÉTICO (SCROLL SNAPPING AUTOMÁTICO HABILITADO PERMANENTEMENTE)
+  // 11. CENTRO MAGNÉTICO (SCROLL SNAPPING AUTOMÁTICO, SOLO DESKTOP)
+  // En responsive (mismo corte de 768px que el resto del sitio) el scroll es
+  // libre. Se consulta en cada scroll para respetar giros y redimensionados.
   let snapTimeout = null;
   let snapSafetyTimer = null;
+  const snapHabilitado = () => window.innerWidth > 768;
 
   const performSnap = () => {
-    if (isSnapping || isNavigating) return;
+    if (isSnapping || isNavigating || !snapHabilitado()) return;
 
     const scrollY = window.scrollY;
 
@@ -814,6 +817,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Cancelar únicamente si el sistema está ejecutando una animación activa
     if (isSnapping || isNavigating) return;
+
+    // Sin centro magnético en responsive
+    if (!snapHabilitado()) return;
 
     // Detectar si se llegó o está muy cerca del final de la página
     const scrollY = window.scrollY;
