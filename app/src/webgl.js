@@ -2201,11 +2201,19 @@ export class SimbiotikWebGL {
       // inmóvil. Se mide por geometría y no por activeSection, porque al
       // deslizar rápido sobre las fichas la sección activa cambia por momentos
       // y el logo reaparecía girando con el scroll.
+      // Igual con El Símbolo en pantalla: el logo 3D desaparece (solo responsive).
       let manifiestoEnPantalla = false;
+      let simboloEnPantalla = false;
       if (this.esResponsive) {
         if (this._manifiestoEl === undefined) this._manifiestoEl = document.getElementById('manifiesto');
-        const mRect = this._manifiestoEl ? this._manifiestoEl.getBoundingClientRect() : null;
-        manifiestoEnPantalla = !!mRect && mRect.top < viewHeight && mRect.bottom > 0;
+        if (this._simboloEl === undefined) this._simboloEl = document.getElementById('simbolo');
+        const enPantalla = (el) => {
+          if (!el) return false;
+          const r = el.getBoundingClientRect();
+          return r.top < viewHeight && r.bottom > 0;
+        };
+        manifiestoEnPantalla = enPantalla(this._manifiestoEl);
+        simboloEnPantalla = enPantalla(this._simboloEl);
       }
       if (manifiestoEnPantalla) {
         if (!this._rotLogoFija) this._rotLogoFija = this.logoGroup.rotation.clone();
@@ -2378,7 +2386,7 @@ export class SimbiotikWebGL {
       }
 
       // Opacidad combinada final del logotipo 3D (oculto al 0% en Dimensión Alterna y El Manifiesto)
-      let sectionFadeProgress = (this.activeSection === 'dimension-alterna' || this.activeSection === 'manifiesto' || manifiestoEnPantalla) ? 0.0 : 1.0;
+      let sectionFadeProgress = (this.activeSection === 'dimension-alterna' || this.activeSection === 'manifiesto' || manifiestoEnPantalla || simboloEnPantalla) ? 0.0 : 1.0;
       const combinedLogoProgress = Math.min(logoCenterProgress, sectionFadeProgress);
 
       // Aplicar visibilidad y opacidad al Logotipo 3D
