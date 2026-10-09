@@ -5,12 +5,25 @@ import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import gsap from 'gsap';
 
 
+// Recorte del fondo del hero por la cortina de entrada de Simbiosis.
+// uCortina: x = yc, y = tan, z = mitad del ancho, w = alto (px CSS).
+// Lo que cae por debajo de la linea ya lo tapa la cortina y no se pinta.
+const cortinaHeroGLSL = `
+  uniform vec4 uCortina;
+  uniform float uDpr;
+
+  bool bajoCortina() {
+    vec2 p = gl_FragCoord.xy / uDpr;
+    float yCss = uCortina.w - p.y;
+    return yCss > uCortina.x + (uCortina.z - p.x) * uCortina.y;
+  }
+`;
+
 // Vertex Shader para las partículas de fondo (Movimiento únicamente orbital alrededor del logo 3D)
 const vertexShader = `
   uniform float uTime;
   uniform float uAudioFreq;
   uniform vec2 uMouse;
-  uniform float uNewSectionProgress;
   attribute vec3 aRandoms;
   varying vec3 vColor;
   varying float vOpacity;
@@ -33,15 +46,15 @@ const vertexShader = `
     gl_PointSize = (14.0 / -mvPosition.z);
     
     vColor = color;
-    vOpacity = (0.3 + 0.7 * sin(uTime * aRandoms.x + aRandoms.y)) * (1.0 - uNewSectionProgress);
+    vOpacity = 0.3 + 0.7 * sin(uTime * aRandoms.x + aRandoms.y);
   }
 `;
 
-// Vertex Shader para las 5,000 partículas en columna espiral que caen desde la parte superior
+// Vertex Shader para las partículas en columna espiral que caen desde la parte superior
+// (5,000 en desktop, 2,500 en responsive; SPIRAL_COUNT llega como define)
 const spiralVertexShader = `
   uniform float uTime;
   uniform vec2 uMouse;
-  uniform float uNewSectionProgress;
   attribute float aIndex;
   attribute float aSizeScale;
   attribute float aColorFactor;
@@ -51,7 +64,8 @@ const spiralVertexShader = `
 
   void main() {
     // Ciclo de vida muy lento y personalizado
-    float lifetime = mod(uTime * 0.05 * aRandomOffset.x + aIndex * 0.0002, 1.0);
+    // El desfase reparte las partículas por todo el ciclo sea cual sea la cantidad
+    float lifetime = mod(uTime * 0.05 * aRandomOffset.x + aIndex / SPIRAL_COUNT, 1.0);
     
     // Cae lentamente desde la parte superior del hero (Y = 4.5) hacia abajo (Y = -4.5)
     // Se añade una pequeña fluctuación senoidal para simular resistencia al caer (aleatorio/orgánico)
@@ -86,8 +100,8 @@ const spiralVertexShader = `
     vec4 mvPosition = modelViewMatrix * vec4(pos, 1.0);
     gl_Position = projectionMatrix * mvPosition;
     
-    // Tamaño de partícula aleatorio y variable (aspecto de la imagen) - se agranda en la nueva sección
-    gl_PointSize = (aSizeScale * 25.0 / -mvPosition.z) * (1.0 + uNewSectionProgress * 0.6);
+    // Tamaño de partícula aleatorio y variable (aspecto de la imagen)
+    gl_PointSize = aSizeScale * 25.0 / -mvPosition.z;
     
     // Mezcla de colores Verde Aqua y Morado Neon
     vec3 colorAqua = vec3(0.0, 0.96, 0.83); // Verde Aqua
@@ -103,8 +117,10 @@ const spiralVertexShader = `
 const fragmentShader = `
   varying vec3 vColor;
   varying float vOpacity;
-
+${cortinaHeroGLSL}
   void main() {
+    if (bajoCortina()) discard;
+
     // Dibuja círculos suaves en lugar de cuadrados ásperos
     float dist = distance(gl_PointCoord, vec2(0.5));
     if (dist > 0.5) discard;
@@ -114,42 +130,19 @@ const fragmentShader = `
   }
 `;
 
-// Fragment Shader para las partículas en espiral (Pellets Brillantes)
+// Fragment Shader para las partículas en espiral (círculo difuminado suave).
+// Ya no se desenfoca al entrar en Simbiosis: la tapa la cortina.
 const spiralFragmentShader = `
-  uniform float uNewSectionProgress;
   varying vec3 vColor;
   varying float vOpacity;
-
+${cortinaHeroGLSL}
   void main() {
+    if (bajoCortina()) discard;
+
     float dist = distance(gl_PointCoord, vec2(0.5));
     if (dist > 0.5) discard;
 
-    // 1. Apariencia original (círculo difuminado suave)
-    float alphaOriginal = smoothstep(0.5, 0.05, dist) * vOpacity;
-    vec4 colorOriginal = vec4(vColor, alphaOriginal);
-
-    // 2. Apariencia de Pellet Brillante (esfera 3D con luz difusa y brillo especular)
-    vec2 normalCoord = gl_PointCoord - vec2(0.5);
-    float r2 = dot(normalCoord, normalCoord);
-    float z = sqrt(max(0.25 - r2, 0.0));
-    vec3 normal = normalize(vec3(normalCoord, z));
-    
-    // Dirección de luz desde la esquina superior derecha delantera
-    vec3 lightDir = normalize(vec3(1.0, 1.0, 1.5));
-    float diffuse = max(dot(normal, lightDir), 0.0);
-    
-    vec3 viewDir = vec3(0.0, 0.0, 1.0);
-    vec3 halfDir = normalize(lightDir + viewDir);
-    float specular = pow(max(dot(normal, halfDir), 0.0), 20.0);
-    
-    // Pellet sumamente brillante con glow blanco y base de color
-    vec3 pelletColor = vColor * (diffuse * 0.8 + 0.3) + vec3(specular * 1.6);
-    // El pellet es sólido en el centro y se desvanece de golpe en los bordes
-    float alphaPellet = smoothstep(0.5, 0.45, dist) * (vOpacity * 1.4);
-    vec4 colorPellet = vec4(pelletColor, alphaPellet);
-
-    // Mezclar ambos estados según la transición de sección y desvanecer al entrar
-    gl_FragColor = mix(colorOriginal, colorPellet, uNewSectionProgress) * (1.0 - uNewSectionProgress);
+    gl_FragColor = vec4(vColor, smoothstep(0.5, 0.05, dist) * vOpacity);
   }
 `;
 
@@ -222,8 +215,13 @@ export class SimbiotikWebGL {
       uTime: { value: 0 },
       uAudioFreq: { value: 0 },
       uMouse: { value: new THREE.Vector2(0, 0) },
-      uNewSectionProgress: { value: 0 }
+      uNewSectionProgress: { value: 0 },
+      // Linea de la cortina de Simbiosis; yc enorme = sin recorte
+      uCortina: { value: new THREE.Vector4(1e6, 0, 0, 0) },
+      uDpr: { value: this.renderer.getPixelRatio() }
     };
+    // El fondo del hero se apaga cuando la cortina lo tapa entero
+    this.heroBgApagado = false;
 
     this.logoMesh = null;
     this.logoSpinSpeed = 0.005;
@@ -244,6 +242,10 @@ export class SimbiotikWebGL {
       this.loadLogoModel(options.logoUrl);
     }
 
+    // Responsive (mismo corte que main.js): menos partículas en el hero.
+    // Se decide al cargar; girar o redimensionar no reconstruye las partículas.
+    this.esResponsive = window.innerWidth <= 768;
+
     this.initParticles();
     this.initSpiralParticles();
     this.initPlaceholderLogo();
@@ -263,8 +265,9 @@ export class SimbiotikWebGL {
   }
 
   // Fondo de Partículas dispersas en forma de anillo tecnológico (Restaurado al original)
+  // 12,000 en desktop, 5,000 en responsive.
   initParticles() {
-    const count = 12000;
+    const count = this.esResponsive ? 5000 : 12000;
     const geometry = new THREE.BufferGeometry();
     const positions = new Float32Array(count * 3);
     const colors = new Float32Array(count * 3);
@@ -307,9 +310,10 @@ export class SimbiotikWebGL {
     this.scene.add(this.particleSystem);
   }
 
-  // Columna de 5,000 partículas que brotan del centro hacia abajo en espiral
+  // Columna de partículas que brotan del centro hacia abajo en espiral
+  // 5,000 en desktop, 2,500 en responsive.
   initSpiralParticles() {
-    const count = 5000;
+    const count = this.esResponsive ? 2500 : 5000;
     const geometry = new THREE.BufferGeometry();
     const positions = new Float32Array(count * 3);
     const indices = new Float32Array(count);
@@ -346,11 +350,13 @@ export class SimbiotikWebGL {
 
     this.spiralMaterial = new THREE.ShaderMaterial({
       vertexShader: spiralVertexShader,
+      defines: { SPIRAL_COUNT: count.toFixed(1) },
       fragmentShader: spiralFragmentShader,
       uniforms: {
         uTime: this.spiralTimeUniform,
         uMouse: this.uniforms.uMouse,
-        uNewSectionProgress: this.uniforms.uNewSectionProgress
+        uCortina: this.uniforms.uCortina,
+        uDpr: this.uniforms.uDpr
       },
       transparent: true,
       depthWrite: false,
@@ -2002,18 +2008,37 @@ export class SimbiotikWebGL {
 
       this.uniforms.uNewSectionProgress.value = newSectionProgress;
 
-      // Actualizar opacidad del fondo de galaxias animado en el DOM.
-      // Escribir sólo cuando el valor cambia de verdad evita invalidar el estilo
-      // del elemento en cada frame (antes se reescribía siempre, incluso con el
-      // mismo número, forzando trabajo de estilo y composición innecesario).
+      // El fondo de galaxias del DOM queda apagado: en Simbiosis solo se ven
+      // el modelo 3D, los textos y el fondo de purple-room.js. Escribir sólo
+      // cuando el valor cambia evita invalidar el estilo en cada frame.
       if (this.galaxyBg) {
-        const galaxyOpacity = Math.round(newSectionProgress * 100) / 100;
+        const galaxyOpacity = 0;
         if (galaxyOpacity !== this.lastGalaxyOpacity) {
           this.galaxyBg.style.opacity = galaxyOpacity;
           this.lastGalaxyOpacity = galaxyOpacity;
           this.updateGalaxyIdleState(galaxyOpacity);
         }
       }
+
+      // Cortina de Purple Room, atada a los bordes de la seccion.
+      // sIn  = 0 con el borde superior abajo de la pantalla, 1 al llegar arriba.
+      // sOut = 0 mientras el borde inferior sigue abajo, 1 al llegar arriba.
+      // Las dos barren de abajo hacia arriba: una revela, la otra oculta.
+      const vh = Math.max(1, viewHeight);
+      const sIn = 1 - rect.top / vh;
+      if (this.purpleRoom) {
+        const sOut = 1 - (rect.top + rect.height) / vh;
+        this.purpleRoom.setCortina(sIn, sOut);
+
+        // El fondo del hero (anillo de particulas + espiral) se recorta con la
+        // misma linea, asi la cortina lo tapa en vez de desenfocarlo.
+        const l = this.purpleRoom.lineaEntrada();
+        const dpr = this.renderer.getPixelRatio();
+        this.uniforms.uDpr.value = dpr;
+        this.uniforms.uCortina.value.set(l.yc, l.tan, l.mitadW, this.canvas.height / dpr);
+      }
+      // Con la cortina arriba del todo el fondo del hero deja de pintarse.
+      this.heroBgApagado = sIn >= 0.999;
     }
 
     // Animar la columna de partículas (se pausa progresivamente hasta detenerse en la sección Simbiosis)
@@ -2022,9 +2047,13 @@ export class SimbiotikWebGL {
       this.spiralTimeUniform.value += spiralSpeed;
     }
 
-    // Animar túnel 3D de bloques púrpuras si estamos en la sección de Simbiosis
+    // Animar túnel 3D de bloques púrpuras si estamos en la sección de Simbiosis.
+    // DESACTIVADO: el fondo de Simbiosis ahora lo pinta purple-room.js y la
+    // seccion solo lleva el modelo 3D y los textos. Pon TUNEL_SIMBIOSIS en
+    // true para recuperar el tunel de bloques.
+    const TUNEL_SIMBIOSIS = false;
     if (this.blockInstanced) {
-      if (newSectionProgress > 0) {
+      if (TUNEL_SIMBIOSIS && newSectionProgress > 0) {
         // Movimiento ligero y suave hacia el centro brillante (Z negativo) - 25% más rápido (0.005)
         this.tunnelScrollOffset += 0.005 * (1.0 + simulatedFreq * 0.3);
 
@@ -2111,7 +2140,9 @@ export class SimbiotikWebGL {
       this.logoGroup.visible = true;
     }
     if (this.particleSystem) {
-      this.particleSystem.visible = true;
+      // Fondo del hero: lo tapa la cortina de Simbiosis y queda apagado de
+      // ahi para abajo.
+      this.particleSystem.visible = !this.heroBgApagado;
       this.particleSystem.rotation.y += 0.0006;
     }
 
@@ -2134,10 +2165,11 @@ export class SimbiotikWebGL {
 
       // Lerp suave de rotaciones X, Y y Z para las secciones Memoria Natural y Agujero Negro
       const isMemoria = (this.activeSection === 'memoria-intro' || this.activeSection === 'memoria-natural');
-      // Ocultar las partículas que caen de arriba a abajo en Agujero Negro, Memoria Natural, El Símbolo, Dimensión Alterna, El Manifiesto, Press Kit y Contacto
+      // Ocultar las partículas que caen de arriba a abajo en Agujero Negro, Memoria Natural, El Símbolo, Dimensión Alterna, El Manifiesto, Press Kit y Contacto.
+      // En Simbiosis no se cortan de golpe: las tapa la cortina (heroBgApagado).
       const isHiddenSpiral = (isMemoria || this.activeSection === 'simbolo' || this.activeSection === 'dimension-alterna' || this.activeSection === 'manifiesto' || this.activeSection === 'press-kit' || this.activeSection === 'contacto');
       if (this.spiralSystem) {
-        this.spiralSystem.visible = !isHiddenSpiral;
+        this.spiralSystem.visible = !isHiddenSpiral && !this.heroBgApagado;
       }
 
       // Giro continuo alrededor del eje Z únicamente en la sección Memoria Natural
