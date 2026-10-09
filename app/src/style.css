@@ -94,6 +94,16 @@ body::-webkit-scrollbar {
   /* Safari / Chrome */
 }
 
+/* overflow-x: hidden convertía al body en un contenedor con scroll propio
+   (overflow-y pasa a auto) con ~50px de holgura por las secciones aún sin
+   revelar (translateY(50px)). En táctil el gesto se enganchaba a ese scroll
+   interno: en el hero subía un poco y se detenía hasta soltar el dedo.
+   clip recorta igual en horizontal pero no crea contenedor de scroll; donde
+   no hay soporte se mantiene el hidden de arriba. */
+body {
+  overflow-x: clip;
+}
+
 /* WebGL Canvas fijo de fondo */
 #webgl-canvas {
   position: fixed;
