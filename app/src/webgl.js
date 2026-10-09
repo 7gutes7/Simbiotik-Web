@@ -211,6 +211,21 @@ export class SimbiotikWebGL {
       this.wavesCamera.position.z = 6;
     }
 
+    // Si el navegador pierde el contexto WebGL (en móviles, la GPU se reinicia
+    // al quedarse sin memoria), la página se queda en blanco hasta recargar.
+    // Se recarga sola una vez; la marca de sesión evita entrar en bucle.
+    const alPerderContexto = (e) => {
+      e.preventDefault();
+      const CLAVE = 'smbk-recarga-webgl';
+      let ultima = 0;
+      try { ultima = Number(sessionStorage.getItem(CLAVE)) || 0; } catch (err) { /* sin storage */ }
+      if (Date.now() - ultima < 60000) return;
+      try { sessionStorage.setItem(CLAVE, String(Date.now())); } catch (err) { return; }
+      location.reload();
+    };
+    this.canvas.addEventListener('webglcontextlost', alPerderContexto);
+    if (this.wavesCanvas) this.wavesCanvas.addEventListener('webglcontextlost', alPerderContexto);
+
     this.uniforms = {
       uTime: { value: 0 },
       uAudioFreq: { value: 0 },
@@ -1847,6 +1862,24 @@ export class SimbiotikWebGL {
     ];
 
     try {
+      if (this.esResponsive) {
+        // Responsive: un lote cada vez (compilar + subir a la GPU) cediendo el
+        // hilo entre lotes. Compilarlo todo de golpe, sin compilación paralela,
+        // tumbaba la GPU de algunos móviles en la primera carga (pantalla
+        // blanca que solo se arreglaba recargando).
+        for (let i = 0; i < lotes.length; i++) {
+          lotes[i][1].forEach(encender);
+          this.renderer.compile(this.scene, this.camera);
+          await respirar();
+          this.renderer.render(this.scene, this.camera);
+          lotes[i][1].forEach((o) => { if (o) o.visible = false; });
+
+          paso(0.05 + ((i + 1) / lotes.length) * 0.9);
+          await respirar();
+        }
+        paso(0.95);
+      } else {
+
       // UNA sola compilación con todo encendido. En GPUs con
       // KHR_parallel_shader_compile esto ocurre en paralelo y no bloquea;
       // llamarla una vez por lote recorrería la escena entera cada vez.
@@ -1875,6 +1908,7 @@ export class SimbiotikWebGL {
       }
 
       paso(0.95);
+      }
     } catch (e) {
       console.warn('Precompilación incompleta:', e);
     } finally {
