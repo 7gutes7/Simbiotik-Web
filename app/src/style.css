@@ -1019,7 +1019,7 @@ body.section-memoria-natural #waves-canvas {
 }
 
 .logo-svg-overlay.visible {
-  opacity: 1;
+  opacity: 0.5;
 }
 
 .logo-svg-overlay img {
