@@ -1644,10 +1644,23 @@ export class SimbiotikWebGL {
       
       this.uniforms.uNewSectionProgress.value = newSectionProgress;
 
-      // Actualizar opacidad del fondo de galaxias animado en el DOM
-      const galaxyBg = document.querySelector('.galaxy-background');
-      if (galaxyBg) {
-        galaxyBg.style.opacity = newSectionProgress;
+      // Actualizar opacidad del fondo de galaxias y de Predictive Arc en el DOM
+      // El fondo de galaxias del DOM queda apagado: en Simbiosis solo se ven
+      // el modelo 3D, los textos y el fondo de purple-room.js.
+      if (this._galaxyBg === undefined) {
+        this._galaxyBg = document.querySelector('.galaxy-background') || null;
+        if (this._galaxyBg) this._galaxyBg.style.opacity = 0;
+      }
+
+      // Cortina de Purple Room, atada a los bordes de la seccion.
+      // sIn  = 0 con el borde superior abajo de la pantalla, 1 al llegar arriba.
+      // sOut = 0 mientras el borde inferior sigue abajo, 1 al llegar arriba.
+      // Las dos barren de abajo hacia arriba: una revela, la otra oculta.
+      if (this.purpleRoom) {
+        const vh = Math.max(1, viewHeight);
+        const sIn = 1 - rect.top / vh;
+        const sOut = 1 - (rect.top + rect.height) / vh;
+        this.purpleRoom.setCortina(sIn, sOut);
       }
     }
 
@@ -1657,9 +1670,13 @@ export class SimbiotikWebGL {
       this.spiralTimeUniform.value += spiralSpeed;
     }
 
-    // Animar túnel 3D de bloques púrpuras si estamos en la sección de Simbiosis
+    // Animar túnel 3D de bloques púrpuras si estamos en la sección de Simbiosis.
+    // DESACTIVADO: el fondo de Simbiosis ahora lo pinta purple-room.js y la
+    // seccion solo lleva el modelo 3D y los textos. Pon TUNEL_SIMBIOSIS en
+    // true para recuperar el tunel de bloques.
+    const TUNEL_SIMBIOSIS = false;
     if (this.blockInstanced) {
-      if (newSectionProgress > 0) {
+      if (TUNEL_SIMBIOSIS && newSectionProgress > 0) {
         // Movimiento ligero y suave hacia el centro brillante (Z negativo) - 25% más rápido (0.005)
         this.tunnelScrollOffset += 0.005 * (1.0 + simulatedFreq * 0.3);
         
@@ -1746,6 +1763,8 @@ export class SimbiotikWebGL {
       this.logoGroup.visible = true;
     }
     if (this.particleSystem) {
+      // El logo de partículas se mantiene en todas las secciones, incluida
+      // Simbiosis: va por delante del fondo de purple-room.js.
       this.particleSystem.visible = true;
       this.particleSystem.rotation.y += 0.0006;
     }
@@ -1770,7 +1789,7 @@ export class SimbiotikWebGL {
       // Lerp suave de rotaciones X, Y y Z para las secciones Memoria Natural y Agujero Negro
       const isMemoria = (this.activeSection === 'memoria-intro' || this.activeSection === 'memoria-natural');
       // Ocultar las partículas que caen de arriba a abajo en Agujero Negro, Memoria Natural, El Símbolo, El Manifiesto y Press Kit
-      const isHiddenSpiral = (isMemoria || this.activeSection === 'simbolo' || this.activeSection === 'manifiesto' || this.activeSection === 'press-kit');
+      const isHiddenSpiral = (isMemoria || this.activeSection === 'simbiosis-sonido' || this.activeSection === 'simbolo' || this.activeSection === 'manifiesto' || this.activeSection === 'press-kit');
       if (this.spiralSystem) {
         this.spiralSystem.visible = !isHiddenSpiral;
       }

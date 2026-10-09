@@ -3,6 +3,7 @@ import Lenis from 'lenis';
 import { SimbiotikWebGL } from './webgl.js';
 import { TextScramble } from './scramble.js';
 import { tracks } from './audio.js';
+import { PurpleRoom } from './purple-room.js';
 import gsap from 'gsap';
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -12,6 +13,20 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // Carga del modelo 3D GLTF/GLB en formato Cromo Azul
   webgl.loadLogoModel('/smbtk1.glb');
+
+  // Asa de depuracion: solo con ?debug=1 en la URL, nunca en una visita normal.
+  if (new URLSearchParams(location.search).has('debug')) {
+    window.__SMBK = webgl;
+  }
+
+  // 1.2 FONDO DE LA SECCION 2 (Simbiosis): Purple Wireframe Room
+  const roomCanvas = document.getElementById('room-canvas');
+  if (roomCanvas) {
+    const purpleRoom = new PurpleRoom(roomCanvas);
+    purpleRoom.start();
+    // El bucle de render de webgl.js le pasa el avance de la cortina.
+    webgl.purpleRoom = purpleRoom;
+  }
 
   // 1.5 CURSOR PERSONALIZADO (Punto)
   const cursor = document.createElement('div');

@@ -91,6 +91,21 @@ body::-webkit-scrollbar {
   transition: opacity 0.6s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
+/* Fondo de la seccion Simbiosis (purple-room.js).
+   z-index 0: queda DEBAJO de #webgl-canvas (z-index 1) para que el modelo 3D
+   se siga viendo encima. La entrada y la salida las hace la cortina dibujada
+   dentro del propio canvas, no una transicion CSS. */
+#room-canvas {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100vw;
+  height: 100vh;
+  z-index: 0;
+  pointer-events: none;
+  opacity: 0;
+}
+
 /* Estado A (Agujero Negro): Fondo negro -> Fondo animado (z-index 2, opacidad 100%) -> Logo 3D + Agujero Negro (z-index 3) */
 body.section-memoria-intro #webgl-canvas {
   z-index: 3;
