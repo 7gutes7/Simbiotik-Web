@@ -2215,11 +2215,6 @@ export class SimbiotikWebGL {
         manifiestoEnPantalla = enPantalla(this._manifiestoEl);
         simboloEnPantalla = enPantalla(this._simboloEl);
       }
-      if (manifiestoEnPantalla) {
-        if (!this._rotLogoFija) this._rotLogoFija = this.logoGroup.rotation.clone();
-      } else {
-        this._rotLogoFija = null;
-      }
 
       // Lerp suave de rotaciones X, Y y Z para las secciones Memoria Natural y Agujero Negro
       const isMemoria = (this.activeSection === 'memoria-intro' || this.activeSection === 'memoria-natural');
@@ -2300,8 +2295,15 @@ export class SimbiotikWebGL {
         this.logoGroup.position.x = this.currentLogoPosX;
       }
 
-      // Logo inmóvil en El Manifiesto (responsive): se descarta la rotación de este frame
-      if (this._rotLogoFija) this.logoGroup.rotation.copy(this._rotLogoFija);
+      // Logo inmóvil en El Manifiesto: fijo de frente a 0 grados y centrado, se
+      // descarta la rotación y el desplazamiento de este frame. En responsive
+      // se mide por geometría (manifiestoEnPantalla); en desktop basta la
+      // sección activa.
+      if (manifiestoEnPantalla || this.activeSection === 'manifiesto') {
+        this.logoGroup.rotation.set(0, 0, 0);
+        this.logoGroup.position.x = 0;
+        this.currentLogoPosX = 0;
+      }
 
       // Animar el texto de la sección Simbiosis: entra por la izquierda, se centra perfecto y sale rápidamente por la derecha
       const simbiosisTitle = document.querySelector('.simbiosis-title');
