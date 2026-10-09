@@ -2197,6 +2197,22 @@ export class SimbiotikWebGL {
       const baseRotY = (scrollY / Math.max(1, centerScroll)) * Math.PI;
       const goldFactor = (1.0 - Math.cos(baseRotY)) / 2.0;
 
+      // Responsive: con El Manifiesto en pantalla el logo 3D queda oculto e
+      // inmóvil. Se mide por geometría y no por activeSection, porque al
+      // deslizar rápido sobre las fichas la sección activa cambia por momentos
+      // y el logo reaparecía girando con el scroll.
+      let manifiestoEnPantalla = false;
+      if (this.esResponsive) {
+        if (this._manifiestoEl === undefined) this._manifiestoEl = document.getElementById('manifiesto');
+        const mRect = this._manifiestoEl ? this._manifiestoEl.getBoundingClientRect() : null;
+        manifiestoEnPantalla = !!mRect && mRect.top < viewHeight && mRect.bottom > 0;
+      }
+      if (manifiestoEnPantalla) {
+        if (!this._rotLogoFija) this._rotLogoFija = this.logoGroup.rotation.clone();
+      } else {
+        this._rotLogoFija = null;
+      }
+
       // Lerp suave de rotaciones X, Y y Z para las secciones Memoria Natural y Agujero Negro
       const isMemoria = (this.activeSection === 'memoria-intro' || this.activeSection === 'memoria-natural');
       // Ocultar las partículas que caen de arriba a abajo en Agujero Negro, Memoria Natural, El Símbolo, Dimensión Alterna, El Manifiesto, Press Kit y Contacto.
@@ -2275,6 +2291,9 @@ export class SimbiotikWebGL {
         this.currentLogoPosX += (0.0 - this.currentLogoPosX) * 0.08;
         this.logoGroup.position.x = this.currentLogoPosX;
       }
+
+      // Logo inmóvil en El Manifiesto (responsive): se descarta la rotación de este frame
+      if (this._rotLogoFija) this.logoGroup.rotation.copy(this._rotLogoFija);
 
       // Animar el texto de la sección Simbiosis: entra por la izquierda, se centra perfecto y sale rápidamente por la derecha
       const simbiosisTitle = document.querySelector('.simbiosis-title');
@@ -2359,7 +2378,7 @@ export class SimbiotikWebGL {
       }
 
       // Opacidad combinada final del logotipo 3D (oculto al 0% en Dimensión Alterna y El Manifiesto)
-      let sectionFadeProgress = (this.activeSection === 'dimension-alterna' || this.activeSection === 'manifiesto') ? 0.0 : 1.0;
+      let sectionFadeProgress = (this.activeSection === 'dimension-alterna' || this.activeSection === 'manifiesto' || manifiestoEnPantalla) ? 0.0 : 1.0;
       const combinedLogoProgress = Math.min(logoCenterProgress, sectionFadeProgress);
 
       // Aplicar visibilidad y opacidad al Logotipo 3D
