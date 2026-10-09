@@ -50,7 +50,8 @@ const vertexShader = `
   }
 `;
 
-// Vertex Shader para las 5,000 partículas en columna espiral que caen desde la parte superior
+// Vertex Shader para las partículas en columna espiral que caen desde la parte superior
+// (5,000 en desktop, 2,500 en responsive; SPIRAL_COUNT llega como define)
 const spiralVertexShader = `
   uniform float uTime;
   uniform vec2 uMouse;
@@ -63,7 +64,8 @@ const spiralVertexShader = `
 
   void main() {
     // Ciclo de vida muy lento y personalizado
-    float lifetime = mod(uTime * 0.05 * aRandomOffset.x + aIndex * 0.0002, 1.0);
+    // El desfase reparte las partículas por todo el ciclo sea cual sea la cantidad
+    float lifetime = mod(uTime * 0.05 * aRandomOffset.x + aIndex / SPIRAL_COUNT, 1.0);
     
     // Cae lentamente desde la parte superior del hero (Y = 4.5) hacia abajo (Y = -4.5)
     // Se añade una pequeña fluctuación senoidal para simular resistencia al caer (aleatorio/orgánico)
@@ -203,6 +205,10 @@ export class SimbiotikWebGL {
     this.activeSection = 'inicio';
     this.currentLogoRotX = 0;
 
+    // Responsive (mismo corte que main.js): menos partículas en el hero.
+    // Se decide al cargar; girar o redimensionar no reconstruye las partículas.
+    this.esResponsive = window.innerWidth <= 768;
+
     this.initParticles();
     this.initSpiralParticles();
     this.initPlaceholderLogo();
@@ -215,8 +221,9 @@ export class SimbiotikWebGL {
   }
 
   // Fondo de Partículas dispersas en forma de anillo tecnológico (Restaurado al original)
+  // 12,000 en desktop, 5,000 en responsive.
   initParticles() {
-    const count = 12000;
+    const count = this.esResponsive ? 5000 : 12000;
     const geometry = new THREE.BufferGeometry();
     const positions = new Float32Array(count * 3);
     const colors = new Float32Array(count * 3);
@@ -259,9 +266,10 @@ export class SimbiotikWebGL {
     this.scene.add(this.particleSystem);
   }
 
-  // Columna de 5,000 partículas que brotan del centro hacia abajo en espiral
+  // Columna de partículas que brotan del centro hacia abajo en espiral
+  // 5,000 en desktop, 2,500 en responsive.
   initSpiralParticles() {
-    const count = 5000;
+    const count = this.esResponsive ? 2500 : 5000;
     const geometry = new THREE.BufferGeometry();
     const positions = new Float32Array(count * 3);
     const indices = new Float32Array(count);
@@ -298,6 +306,7 @@ export class SimbiotikWebGL {
 
     this.spiralMaterial = new THREE.ShaderMaterial({
       vertexShader: spiralVertexShader,
+      defines: { SPIRAL_COUNT: count.toFixed(1) },
       fragmentShader: spiralFragmentShader,
       uniforms: {
         uTime: this.spiralTimeUniform,
