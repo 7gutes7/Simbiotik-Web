@@ -87,6 +87,16 @@ document.addEventListener('DOMContentLoaded', () => {
   let isNavigating = false;
 
   const sidebarLinks = document.querySelector('.hero-sidebar-links');
+  // Marca si el hero ocupa la pantalla. En responsive el CSS oculta con ella
+  // el texto SIMBIOTIK del header mientras se ve el título grande del hero.
+  // Va en el scroll nativo: en táctil Lenis no siempre emite su evento.
+  const updateEnHero = () => {
+    document.body.classList.toggle('en-hero', window.scrollY < window.innerHeight * 0.5);
+  };
+  updateEnHero();
+  window.addEventListener('scroll', updateEnHero, { passive: true });
+  window.addEventListener('resize', updateEnHero);
+
   const updateSidebarState = () => {
     if (!sidebarLinks) return;
 

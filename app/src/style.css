@@ -2166,3 +2166,42 @@ body.perf-low .galaxy-background::before {
 .galaxy-background.galaxy-idle::after {
   animation-play-state: paused;
 }
+
+/* Hero en responsive: sin índice lateral, título SIMBIOTIK centrado sobre el
+   modelo 3D (que está en el centro de la pantalla) y el SIMBIOTIK del header
+   oculto mientras se ve el hero. La navegación queda en el menú hamburguesa. */
+@media (max-width: 768px) {
+  #inicio {
+    justify-content: center;
+    padding: 0 16px !important;
+    height: 100vh;
+    height: 100svh;
+    min-height: 0;
+  }
+
+  .hero-sidebar-links {
+    display: none !important;
+  }
+
+  .hero-left-center {
+    margin-bottom: 0;
+  }
+
+  .hero-left-center .hero-title {
+    font-size: clamp(2rem, 10vw, 4rem);
+    margin-bottom: 0;
+    white-space: nowrap;
+    /* Compensa el letter-spacing que queda tras la última letra */
+    padding-left: 0.12em;
+  }
+
+  .navbar .logo {
+    transition: opacity 0.4s ease, visibility 0.4s ease;
+  }
+
+  body.en-hero .navbar .logo {
+    opacity: 0;
+    visibility: hidden;
+    pointer-events: none;
+  }
+}
